@@ -1,0 +1,138 @@
+title = "abdns : bascule vers le DNS du réseau (portail captif)"
+
+[[node]]
+id = "start"
+kind = "start"
+label = "Réseau rejoint"
+
+[[node]]
+id = "probe"
+label = "Sonder les serveurs DoH avec un nom inexistant"
+
+[[node]]
+id = "answers"
+kind = "gateway"
+label = "Un serveur chiffré répond ?"
+
+[[node]]
+id = "encrypted"
+label = "Rester en DNS chiffré, remettre le compteur d'échecs à 0"
+
+[[node]]
+id = "end_encrypted"
+kind = "end"
+label = "Mode chiffré"
+
+[[node]]
+id = "count"
+label = "Compter un échec"
+
+[[node]]
+id = "twice"
+kind = "gateway"
+label = "2 échecs de suite ?"
+
+[[node]]
+id = "network_ok"
+kind = "gateway"
+label = "local_fallback actif et DNS du réseau répond ?"
+
+[[node]]
+id = "retry"
+label = "Resonder dans 3 s"
+
+[[node]]
+id = "stay"
+kind = "end"
+label = "Reste chiffré, rien ne part en clair"
+
+[[node]]
+id = "go_local"
+label = "Passer au DNS du réseau et notifier"
+
+[[node]]
+id = "portal"
+kind = "gateway"
+label = "Page d'Apple modifiée ?"
+
+[[node]]
+id = "open"
+label = "Ouvrir la page de connexion"
+
+[[node]]
+id = "end_portal"
+kind = "end"
+label = "Connexion possible"
+
+[[node]]
+id = "end_clear"
+kind = "end"
+label = "Mode clair signalé, noms journalisés"
+
+[[flow]]
+from = "start"
+to = "probe"
+
+[[flow]]
+from = "probe"
+to = "answers"
+
+[[flow]]
+from = "answers"
+to = "encrypted"
+label = "Oui"
+
+[[flow]]
+from = "encrypted"
+to = "end_encrypted"
+
+[[flow]]
+from = "answers"
+to = "count"
+label = "Non"
+
+[[flow]]
+from = "count"
+to = "twice"
+
+[[flow]]
+from = "twice"
+to = "network_ok"
+label = "Oui"
+
+[[flow]]
+from = "twice"
+to = "retry"
+label = "Non"
+
+[[flow]]
+from = "retry"
+to = "probe"
+
+[[flow]]
+from = "network_ok"
+to = "go_local"
+label = "Oui"
+
+[[flow]]
+from = "network_ok"
+to = "stay"
+label = "Non"
+
+[[flow]]
+from = "go_local"
+to = "portal"
+
+[[flow]]
+from = "portal"
+to = "open"
+label = "Oui"
+
+[[flow]]
+from = "open"
+to = "end_portal"
+
+[[flow]]
+from = "portal"
+to = "end_clear"
+label = "Non"
