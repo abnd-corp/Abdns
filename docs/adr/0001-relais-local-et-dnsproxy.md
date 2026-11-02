@@ -1,6 +1,6 @@
 # 0001 — Relais local, dnsproxy pour le chiffrement, garde pour le dernier recours
 
-Date : 2026-11-02 · Statut : accepté
+Date : 2026-11-02 · Statut : remplacé en partie par [0002](0002-client-doh-integre.md) (dnsproxy retiré)
 
 ## Contexte
 
