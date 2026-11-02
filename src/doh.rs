@@ -3,23 +3,36 @@
 //!
 //! Un serveur qui échoue est mis de côté (30 s, puis jusqu'à 5 min) : les requêtes suivantes
 //! passent directement au suivant, et la garde le réessaie à chaque contrôle.
+//!
+//! HTTP/2 (ou HTTP/1.1 si le serveur ne le propose pas) par hyper, sur le runtime d'`rt` : une
+//! connexion par serveur, partagée par toutes les requêtes en cours.
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::sync::Mutex;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::task::{Context as TaskContext, Poll};
+use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, ensure};
-use reqwest::blocking::Client;
-use reqwest::header::{ACCEPT, CONTENT_TYPE};
+use anyhow::{Context, Result, anyhow, ensure};
+use http_body_util::{BodyExt, Full, Limited};
+use hyper::body::Bytes;
+use hyper::header::{ACCEPT, CONTENT_TYPE};
+use hyper::{Request, Uri};
+use hyper_rustls::HttpsConnector;
+use hyper_util::client::legacy::Client;
+use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_util::client::legacy::connect::dns::Name;
+use hyper_util::rt::{TokioExecutor, TokioTimer};
 
 use crate::config::{self, Config};
-use crate::{dns, lock, logbook};
+use crate::{dns, lock, logbook, rt};
 
 const MEDIA_TYPE: &str = "application/dns-message";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+/// Plus grand message DNS possible : au-delà, la réponse n'en est pas une.
+const MAX_ANSWER: usize = 65_535;
 const DOWN_FIRST: u64 = 30;
 const DOWN_MAX: u64 = 300;
 const CACHE_MAX: usize = 20_000;
@@ -28,10 +41,34 @@ const STALE_FOR: u64 = 86_400;
 const STALE_TTL: u32 = 30;
 const NONE: usize = usize::MAX;
 
+type Https = Client<HttpsConnector<HttpConnector<Fixed>>, Full<Bytes>>;
+
+/// Adresse d'un serveur nommé, prise dans la configuration : le client HTTPS ne fait jamais de
+/// requête DNS (elle partirait en clair, ou reviendrait à abdns lui-même).
+#[derive(Clone)]
+struct Fixed(Option<IpAddr>);
+
+impl tower_service::Service<Name> for Fixed {
+    type Response = std::iter::Once<SocketAddr>;
+    type Error = std::io::Error;
+    type Future = std::future::Ready<std::io::Result<Self::Response>>;
+
+    fn poll_ready(&mut self, _: &mut TaskContext<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, name: Name) -> Self::Future {
+        // Port 0 : remplacé par celui de l'adresse du serveur.
+        std::future::ready(
+            self.0.map(|ip| std::iter::once(SocketAddr::new(ip, 0))).ok_or_else(|| std::io::Error::other(format!("no ip for {name}"))),
+        )
+    }
+}
+
 struct Upstream {
     name: String,
-    url: String,
-    client: Client,
+    url: Uri,
+    client: Https,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -54,21 +91,25 @@ pub struct Resolver {
     last: AtomicUsize,
 }
 
-fn client(server: &config::Server) -> Result<Client> {
-    let mut builder = Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .connect_timeout(CONNECT_TIMEOUT)
+fn client(server: &config::Server) -> Result<Https> {
+    let mut http = HttpConnector::new_with_resolver(Fixed(server.ip));
+    http.enforce_http(false);
+    http.set_connect_timeout(Some(CONNECT_TIMEOUT));
+    http.set_keepalive(Some(Duration::from_secs(30)));
+    http.set_nodelay(true);
+    // ring : se compile partout (Windows et musl compris) sans outil externe ; certificats
+    // vérifiés par le système (trousseau, magasin de Windows, certificats de la distribution).
+    let https = hyper_rustls::HttpsConnectorBuilder::new()
+        .with_provider_and_platform_verifier(rustls::crypto::ring::default_provider())
+        .with_context(|| format!("{}: cannot build the TLS client", server.name))?
+        .https_only()
+        .enable_all_versions()
+        .wrap_connector(http);
+    Ok(Client::builder(TokioExecutor::new())
         .pool_idle_timeout(Duration::from_secs(90))
-        .tcp_keepalive(Duration::from_secs(30))
-        .https_only(true)
-        .no_proxy();
-    if let (Some(ip), false) = (server.ip, server.host_is_ip()) {
-        // Nom du certificat gardé, adresse imposée : aucune résolution en clair.
-        let url = reqwest::Url::parse(&server.url).with_context(|| format!("{}: invalid url", server.name))?;
-        let host = url.host_str().context("url without host")?.to_owned();
-        builder = builder.resolve(&host, SocketAddr::new(ip, url.port_or_known_default().unwrap_or(443)));
-    }
-    builder.build().with_context(|| format!("{}: cannot build the HTTPS client", server.name))
+        .pool_timer(TokioTimer::new())
+        .timer(TokioTimer::new())
+        .build(https))
 }
 
 /// Même réponse, identifiant de la requête du client.
@@ -79,13 +120,13 @@ fn with_id(mut reply: Vec<u8>, query: &[u8]) -> Vec<u8> {
 
 impl Resolver {
     pub fn new(config: &Config) -> Result<Self> {
-        // ring : se compile partout (Windows et musl compris) sans outil externe. Déjà installé
-        // lors d'une relecture de la configuration : rien à faire.
-        let _ = rustls::crypto::ring::default_provider().install_default();
         let upstreams = config
             .server
             .iter()
-            .map(|s| Ok(Upstream { name: s.name.clone(), url: s.full_url()?, client: client(s)? }))
+            .map(|s| {
+                let url = s.full_url()?.parse().with_context(|| format!("{}: invalid url", s.name))?;
+                Ok(Upstream { name: s.name.clone(), url, client: client(s)? })
+            })
             .collect::<Result<Vec<_>>>()?;
         let health = Mutex::new(vec![Health::default(); upstreams.len()]);
         Ok(Self { upstreams, health, cache: Mutex::new(HashMap::new()), last: AtomicUsize::new(NONE) })
@@ -107,21 +148,25 @@ impl Resolver {
         self.upstreams.iter().zip(health).map(|(u, h)| (u.name.clone(), h.down_until <= now)).collect()
     }
 
-    fn exchange(&self, index: usize, query: &[u8]) -> Result<Vec<u8>> {
+    async fn exchange(&self, index: usize, query: &[u8]) -> Result<Vec<u8>> {
         let upstream = &self.upstreams[index];
         // Identifiant 0 (RFC 8484, §4.1) : mieux mis en cache par les serveurs.
         let mut body = query.to_vec();
         body[..2].fill(0);
-        let response = upstream
-            .client
-            .post(&upstream.url)
+        let request = Request::post(upstream.url.clone())
             .header(CONTENT_TYPE, MEDIA_TYPE)
             .header(ACCEPT, MEDIA_TYPE)
-            .body(body)
-            .send()
-            .map_err(|e| anyhow::anyhow!("{}", e.without_url()))?;
-        ensure!(response.status().is_success(), "HTTP {}", response.status().as_u16());
-        let reply = response.bytes().map_err(|e| anyhow::anyhow!("{}", e.without_url()))?.to_vec();
+            .body(Full::new(Bytes::from(body)))
+            .context("invalid request")?;
+        // Les erreurs de hyper ne citent jamais l'adresse : le chemin secret reste hors du journal.
+        let reply = tokio::time::timeout(REQUEST_TIMEOUT, async {
+            let response = upstream.client.request(request).await?;
+            ensure!(response.status().is_success(), "HTTP {}", response.status().as_u16());
+            let body = Limited::new(response.into_body(), MAX_ANSWER).collect().await.map_err(|e| anyhow!("{e}"))?;
+            Ok(body.to_bytes().to_vec())
+        })
+        .await
+        .map_err(|_| anyhow!("no answer within {} s", REQUEST_TIMEOUT.as_secs()))??;
         ensure!(reply.len() >= 12, "short answer");
         Ok(reply)
     }
@@ -184,15 +229,20 @@ impl Resolver {
         cache.insert(key, Entry { reply: reply.to_vec(), stored: logbook::now(), ttl });
     }
 
+    /// Réponse encore valide du cache, avec l'identifiant de la requête.
+    pub fn from_cache(&self, query: &[u8]) -> Option<Vec<u8>> {
+        dns::cache_key(query).and_then(|key| self.cached(&key, false)).map(|reply| with_id(reply, query))
+    }
+
     /// Réponse chiffrée à une requête, ou `None` si aucun serveur ne répond et que le cache
     /// n'a rien, même périmé.
-    pub fn resolve(&self, query: &[u8]) -> Option<Vec<u8>> {
+    pub async fn resolve(&self, query: &[u8]) -> Option<Vec<u8>> {
         let key = dns::cache_key(query);
         if let Some(reply) = key.as_deref().and_then(|k| self.cached(k, false)) {
             return Some(with_id(reply, query));
         }
         for index in self.order() {
-            match self.exchange(index, query) {
+            match self.exchange(index, query).await {
                 Ok(reply) => {
                     self.succeeded(index);
                     if let Some(key) = key {
@@ -206,34 +256,41 @@ impl Resolver {
         key.as_deref().and_then(|k| self.cached(k, true)).map(|r| with_id(r, query))
     }
 
-    /// Contrôle de la garde : un nom jamais demandé, chaque serveur dans l'ordre, même mis de
-    /// côté (c'est ainsi qu'il revient). Rend le premier qui répond (NOERROR ou NXDOMAIN).
-    pub fn probe(&self, name: &str) -> Option<usize> {
+    /// Un nom jamais demandé, posé à tous les serveurs en même temps (même mis de côté) : un
+    /// résultat par serveur, dans l'ordre, avec le temps de réponse. Depuis un fil hors du
+    /// runtime (garde, canal de commande).
+    fn ask_all(self: &Arc<Self>, name: &str) -> Vec<Result<Duration>> {
         let query = dns::query(0, name, 1);
-        // Tous en parallèle : quelques secondes au plus, même quand aucun ne répond.
-        let results: Vec<Result<()>> = std::thread::scope(|scope| {
-            let probes: Vec<_> = (0..self.upstreams.len())
+        rt::block_on(async {
+            let runs: Vec<_> = (0..self.upstreams.len())
                 .map(|index| {
-                    let query = &query;
-                    scope.spawn(move || {
-                        let reply = self.exchange(index, query)?;
-                        ensure!(matches!(dns::rcode(&reply), Some(0 | dns::NXDOMAIN)), "rcode {:?}", dns::rcode(&reply));
-                        Ok(())
+                    let (resolver, query) = (self.clone(), query.clone());
+                    rt::handle().spawn(async move {
+                        let started = Instant::now();
+                        let reply = resolver.exchange(index, &query).await?;
+                        match dns::rcode(&reply) {
+                            Some(0 | dns::NXDOMAIN) => Ok(started.elapsed()),
+                            rcode => Err(anyhow!("rcode {rcode:?}")),
+                        }
                     })
                 })
                 .collect();
-            probes.into_iter().map(|p| p.join().unwrap_or_else(|_| Err(anyhow::anyhow!("probe panicked")))).collect()
-        });
+            let mut results = Vec::with_capacity(runs.len());
+            for run in runs {
+                results.push(run.await.unwrap_or_else(|_| Err(anyhow!("probe panicked"))));
+            }
+            results
+        })
+    }
+
+    /// Contrôle de la garde : chaque serveur, même mis de côté (c'est ainsi qu'il revient).
+    /// Rend le premier dans l'ordre qui répond (NOERROR ou NXDOMAIN).
+    pub fn probe(self: &Arc<Self>, name: &str) -> Option<usize> {
         let mut first = None;
-        for (index, result) in results.iter().enumerate() {
+        for (index, result) in self.ask_all(name).iter().enumerate() {
             match result {
-                Ok(()) => {
-                    if first.is_none() {
-                        first = Some(index);
-                    } else {
-                        lock(&self.health)[index] = Health::default();
-                    }
-                }
+                Ok(_) if first.is_none() => first = Some(index),
+                Ok(_) => lock(&self.health)[index] = Health::default(),
                 Err(error) => self.failed(index, error),
             }
         }
@@ -244,29 +301,14 @@ impl Resolver {
         first
     }
 
-    /// `abdns test` : chaque serveur interrogé en parallèle, avec son temps de réponse ;
-    /// l'état des serveurs n'est pas modifié.
-    pub fn test(&self, name: &str) -> Vec<(String, std::result::Result<Duration, String>)> {
-        let query = dns::query(0, name, 1);
-        std::thread::scope(|scope| {
-            let runs: Vec<_> = (0..self.upstreams.len())
-                .map(|index| {
-                    let query = &query;
-                    scope.spawn(move || {
-                        let started = std::time::Instant::now();
-                        let reply = self.exchange(index, query).map_err(|e| format!("{e:#}"))?;
-                        match dns::rcode(&reply) {
-                            Some(0 | dns::NXDOMAIN) => Ok(started.elapsed()),
-                            rcode => Err(format!("rcode {rcode:?}")),
-                        }
-                    })
-                })
-                .collect();
-            runs.into_iter()
-                .enumerate()
-                .map(|(index, run)| (self.name(index).to_owned(), run.join().unwrap_or_else(|_| Err("panicked".to_owned()))))
-                .collect()
-        })
+    /// `abdns test` : chaque serveur avec son temps de réponse ; l'état des serveurs n'est pas
+    /// modifié.
+    pub fn test(self: &Arc<Self>, name: &str) -> Vec<(String, std::result::Result<Duration, String>)> {
+        self.ask_all(name)
+            .into_iter()
+            .enumerate()
+            .map(|(index, result)| (self.name(index).to_owned(), result.map_err(|e| format!("{e:#}"))))
+            .collect()
     }
 }
 
