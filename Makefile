@@ -1,5 +1,5 @@
 # Cibles communes de l'organisation (charte R21) : build, test, lint. Un projet peut en ajouter, pas en retirer.
-.PHONY: help build release test lint fmt check install uninstall clean
+.PHONY: help build release test lint fmt check install uninstall clean bpmn test-bpmn
 
 CARGO ?= cargo
 PREFIX ?= /usr/local
@@ -37,6 +37,12 @@ install: ## Installe abdns, abdnsd, les pages de manuel et le service (macOS, su
 uninstall: ## Arrête et retire le service, remet le DNS du réseau (sudo)
 	$(PREFIX)/bin/abdns --config $(CONFIG) uninstall
 	rm -f $(PREFIX)/bin/abdns $(PREFIX)/bin/abdnsd $(PREFIX)/share/man/man1/abdns.1 $(PREFIX)/share/man/man8/abdnsd.8
+
+bpmn: ## Génère les PNG des diagrammes docs/bpmn/*.toml (Python, Pillow)
+	python3 docs/bpmn/bpmn.py
+
+test-bpmn: ## Teste le générateur de diagrammes
+	python3 -m unittest discover -s docs/bpmn
 
 clean: ## Supprime les artefacts de compilation
 	$(CARGO) clean

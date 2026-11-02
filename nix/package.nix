@@ -19,5 +19,6 @@ rustPlatform.buildRustPackage {
     description = "Encrypted DNS for your computer: your own DoH resolver first, ordered encrypted fallbacks, network DNS only for captive portals";
     homepage = "https://github.com/abnd-corp/Abdns";
     mainProgram = "abdns";
+    license = lib.licenses.agpl3Only;
   };
 }
