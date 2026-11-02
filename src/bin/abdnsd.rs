@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicBool;
 
 use abdns::config::{self, Config};
 use abdns::i18n::Text;
-use abdns::{control, doh, guard, logbook, platform, relay, rt};
+use abdns::{control, guard, logbook, platform, relay, resolver, rt};
 use anyhow::{Context, Result, ensure};
 
 const USAGE: &str = "Usage: abdnsd [--config FILE] [--no-system]
@@ -45,7 +45,7 @@ fn run(config_path: &Path, system: bool) -> Result<()> {
         }));
     }
     let signals = Arc::new(control::Signals::default());
-    let started = doh::Resolver::new(&config).and_then(|resolver| {
+    let started = resolver::Resolver::new(&config).and_then(|resolver| {
         let shared = relay::Shared::new(resolver);
         relay::start(&config.listen, &shared)?;
         // Sans canal de commande, le DNS doit continuer : `abdns status` lit alors le fichier d'état.
