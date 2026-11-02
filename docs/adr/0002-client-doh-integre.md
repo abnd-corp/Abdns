@@ -16,7 +16,7 @@ La v1 confiait le chiffrement à dnsproxy, lancé par abdns. Trois limites : deu
 - **Notifications limitées** : nouveaux domaines en clair au plus toutes les 5 min, rappel toutes les 30 min, « secours utilisé » après une minute, au plus 6 par 10 min.
 - Les erreurs HTTP sont journalisées sans l'adresse (`without_url`) : le jeton d'un chemin secret n'apparaît jamais.
 
-## Dépendances ajoutées (R19)
+## Dépendances ajoutées
 
 reqwest 0.13 (`blocking`, `rustls`, `http2`, sans options par défaut) et, par lui, rustls, hyper et aws-lc-rs. Écrire un client HTTP/2 et TLS à la main serait plus risqué que d'utiliser ces bibliothèques largement éprouvées. `system-proxy` reste désactivé.
 

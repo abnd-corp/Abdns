@@ -1,6 +1,6 @@
 # abdns — DNS chiffré pour votre ordinateur, compatible avec les portails captifs
 
-[![CI](https://github.com/abnd-corp/Abdns/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/abnd-corp/Abdns/actions/workflows/ci.yml)
+[![CI](https://github.com/abnd-corp/Abdns/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/abnd-corp/Abdns/actions/workflows/ci.yml)
 
 [English](README.md) · **Français**
 

@@ -1,6 +1,6 @@
 # abdns — encrypted DNS for your computer, with captive portal support
 
-[![CI](https://github.com/abnd-corp/Abdns/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/abnd-corp/Abdns/actions/workflows/ci.yml)
+[![CI](https://github.com/abnd-corp/Abdns/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/abnd-corp/Abdns/actions/workflows/ci.yml)
 
 **English** · [Français](README.fr.md)
 
