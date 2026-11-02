@@ -253,6 +253,34 @@ pub fn map_ttls(reply: &mut [u8], f: impl Fn(u32) -> u32) {
 mod tests {
     use super::*;
 
+    /// Messages aléatoires ou abîmés (venus d'un client ou d'un serveur) : jamais de panique.
+    #[test]
+    fn malformed_messages_never_panic() {
+        let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let valid = answer(300);
+        for round in 0..200_000 {
+            let mut msg = if round % 2 == 0 { valid.clone() } else { vec![0; (next() % 80) as usize] };
+            for _ in 0..1 + next() % 8 {
+                if !msg.is_empty() {
+                    let at = next() as usize % msg.len();
+                    msg[at] = next() as u8;
+                }
+            }
+            if next() % 4 == 0 {
+                msg.truncate(next() as usize % (msg.len() + 1));
+            }
+            let _ =
+                (question(&msg), cache_key(&msg), servfail(&msg), udp_limit(&msg), truncated(&msg), cache_ttl(&msg), ipv4_answers(&msg));
+            map_ttls(&mut msg, |t| t / 2);
+        }
+    }
+
     /// Réponse A de `example.com` avec une durée de vie, éventuellement EDNS côté requête.
     fn answer(ttl: u32) -> Vec<u8> {
         let mut r = query(9, "example.com", 1);

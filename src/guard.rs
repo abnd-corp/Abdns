@@ -25,7 +25,7 @@ use crate::doh::Resolver;
 use crate::i18n::Text;
 use crate::platform::{self, Network};
 use crate::relay::{Lan, Shared, exchange};
-use crate::{dns, logbook};
+use crate::{dns, lock, logbook, write};
 
 const NETWORK_EVERY: u64 = 5;
 const CHECK_EVERY: u64 = 30;
@@ -228,9 +228,7 @@ impl Guard {
     }
 
     fn set_local_mode(&self, local: bool) {
-        if let Ok(mut mode) = self.shared.local_mode.write() {
-            *mode = local;
-        }
+        *write(&self.shared.local_mode) = local;
     }
 
     fn go_local(&mut self, now: u64, reason: &str) {
@@ -265,7 +263,7 @@ impl Guard {
     /// Domaines partis en clair depuis le dernier relevé : tous au journal, les nouveaux en
     /// notification.
     fn report_clear(&mut self, now: u64) {
-        let names = self.shared.clear.lock().map(|mut c| std::mem::take(&mut *c)).unwrap_or_default();
+        let names = std::mem::take(&mut *lock(&self.shared.clear));
         if names.is_empty() {
             return;
         }
@@ -382,9 +380,7 @@ impl Guard {
         }
         if current != self.network {
             let lan = current.as_ref().map(|n| Lan { servers: sockets(&n.dns), domain: n.domain.clone() }).unwrap_or_default();
-            if let Ok(mut shared) = self.shared.lan.write() {
-                *shared = lan;
-            }
+            *write(&self.shared.lan) = lan;
             if self.local {
                 self.next_check = now;
             }
@@ -417,9 +413,7 @@ impl Guard {
                     logbook::log("listen changed: restart abdns to apply it");
                 }
                 let services_changed = new.network_services != self.config.network_services;
-                if let Ok(mut shared) = self.shared.resolver.write() {
-                    *shared = Arc::new(resolver);
-                }
+                *write(&self.shared.resolver) = Arc::new(resolver);
                 self.text = Text(new.language);
                 self.config = Arc::new(new);
                 if self.system

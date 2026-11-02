@@ -13,8 +13,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 
-use crate::dns;
 use crate::doh::Resolver;
+use crate::{dns, lock, read};
 
 /// Requêtes ou connexions traitées en même temps ; au-delà, les nouvelles sont ignorées
 /// (le client réessaie).
@@ -66,7 +66,7 @@ impl Shared {
     }
 
     pub fn resolver(&self) -> Arc<Resolver> {
-        self.resolver.read().map(|r| r.clone()).expect("resolver lock")
+        read(&self.resolver).clone()
     }
 
     fn slot(&self) -> Option<Slot<'_>> {
@@ -78,18 +78,18 @@ impl Shared {
     }
 
     fn route(&self, query: &[u8]) -> Route {
-        let lan = self.lan.read().map(|l| l.clone()).unwrap_or_default();
-        let local_mode = self.local_mode.read().map(|m| *m).unwrap_or(false);
+        let lan = read(&self.lan).clone();
+        let local_mode = *read(&self.local_mode);
         let name = dns::question(query);
         let local_name = name.as_deref().is_some_and(|n| dns::is_local(n, lan.domain.as_deref()));
         if lan.servers.is_empty() || !(local_name || local_mode) {
             return Route::Encrypted;
         }
-        if !local_name
-            && let (Some(name), Ok(mut clear)) = (name, self.clear.lock())
-            && clear.len() < MAX_PENDING
-        {
-            clear.push(name);
+        if !local_name && let Some(name) = name {
+            let mut clear = lock(&self.clear);
+            if clear.len() < MAX_PENDING {
+                clear.push(name);
+            }
         }
         Route::Network(lan.servers)
     }
