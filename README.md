@@ -235,4 +235,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.
 
 ## License
 
-See [LICENSE](LICENSE).
+abdns is free software under the [GNU Affero General Public License v3.0 only](LICENSE) (AGPL-3.0-only): you may use, study, modify and share it. If you distribute a modified version, or let other machines use a modified version over a network (for example as a DNS relay for an office), you must publish its source code under the same license.
+
+The name "abdns" designates the official versions from this repository; a modified version must use another name.
