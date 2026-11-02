@@ -246,4 +246,101 @@ mod tests {
     fn no_network_dns_stays_encrypted() {
         assert_eq!(network(shared(true, false).route(&dns::query(1, "nas.lan", 1))), None);
     }
+
+    /// Faux DNS du réseau : répond à chaque requête UDP en la renvoyant avec le bit « réponse ».
+    /// Si `forged_first`, envoie d'abord une réponse d'un autre identifiant (NXDOMAIN).
+    fn fake_network_dns(forged_first: bool) -> SocketAddr {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let addr = socket.local_addr().unwrap();
+        thread::spawn(move || {
+            let mut buf = [0; 512];
+            while let Ok((n, client)) = socket.recv_from(&mut buf) {
+                let mut reply = buf[..n].to_vec();
+                reply[2] |= 0x80;
+                if forged_first {
+                    let mut forged = reply.clone();
+                    forged[1] ^= 0xff;
+                    forged[3] = (forged[3] & 0xf0) | dns::NXDOMAIN;
+                    socket.send_to(&forged, client).ok();
+                }
+                socket.send_to(&reply, client).ok();
+            }
+        });
+        addr
+    }
+
+    fn free_udp_port() -> u16 {
+        UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+    }
+
+    #[test]
+    fn forged_answers_are_ignored() {
+        let server = fake_network_dns(true);
+        let query = dns::query(0x1234, "example.com", 1);
+        let reply = exchange(server, &query, false, Duration::from_secs(2)).unwrap();
+        assert_eq!(dns::id(&reply), Some(0x1234));
+        assert_eq!(dns::rcode(&reply), Some(0), "the forged NXDOMAIN must not be taken");
+    }
+
+    #[test]
+    fn silent_server_times_out() {
+        let silent = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let query = dns::query(1, "example.com", 1);
+        assert!(exchange(silent.local_addr().unwrap(), &query, false, Duration::from_millis(200)).is_err());
+    }
+
+    #[test]
+    fn tcp_framing_and_identifier_check() {
+        for (answer_id_xor, ok) in [(0, true), (1, false)] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut msg = read_frame(&mut stream).unwrap();
+                msg[0] ^= answer_id_xor;
+                write_frame(&mut stream, &msg).unwrap();
+            });
+            let query = dns::query(0x0a0b, "example.com", 1);
+            assert_eq!(exchange(addr, &query, true, Duration::from_secs(2)).is_ok(), ok);
+        }
+    }
+
+    #[test]
+    fn local_mode_relays_to_the_network_dns_and_reports_only_foreign_names() {
+        let shared = shared(true, false);
+        *shared.lan.write().unwrap() = Lan { servers: vec![fake_network_dns(false)], domain: Some("home".into()) };
+        let listen = SocketAddr::from(([127, 0, 0, 1], free_udp_port()));
+        start(&[listen], &shared).unwrap();
+
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        let ask = |id: u16, name: &str| {
+            client.send_to(&dns::query(id, name, 1), listen).unwrap();
+            let mut buf = [0; 512];
+            let n = client.recv(&mut buf).expect("the relay answers");
+            assert_eq!(dns::id(&buf[..n]), Some(id));
+            assert!(buf[2] & 0x80 != 0, "a response");
+        };
+        ask(1, "example.com");
+        ask(2, "nas.home");
+        ask(3, "printer.local");
+        assert_eq!(*shared.clear.lock().unwrap(), vec!["example.com".to_owned()]);
+    }
+
+    #[test]
+    fn encrypted_failure_answers_servfail_without_leaking() {
+        // Mode chiffré, serveur DoH injoignable : SERVFAIL au client, rien en clair.
+        let dead = Config::parse("[[server]]\nname = \"dead\"\nurl = \"https://127.0.0.1:9/dns-query\"\n").unwrap();
+        let shared = Shared::new(Resolver::new(&dead).unwrap());
+        *shared.lan.write().unwrap() = Lan { servers: vec![SocketAddr::from(([192, 0, 2, 1], 53))], domain: None };
+        let listen = SocketAddr::from(([127, 0, 0, 1], free_udp_port()));
+        start(&[listen], &shared).unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(15))).unwrap();
+        client.send_to(&dns::query(9, "example.com", 1), listen).unwrap();
+        let mut buf = [0; 512];
+        let n = client.recv(&mut buf).expect("the relay answers");
+        assert_eq!((dns::id(&buf[..n]), dns::rcode(&buf[..n])), (Some(9), Some(2)));
+        assert!(shared.clear.lock().unwrap().is_empty());
+    }
 }
