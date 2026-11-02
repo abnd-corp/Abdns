@@ -3,6 +3,7 @@
 class Abdns < Formula
   desc "Encrypted DNS for your computer, with captive portal support"
   homepage "https://github.com/abnd-corp/Abdns"
+  license "AGPL-3.0-only"
   url "https://github.com/abnd-corp/Abdns/archive/refs/tags/v0.2.0.tar.gz"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
   head "https://github.com/abnd-corp/Abdns.git", branch: "main"
