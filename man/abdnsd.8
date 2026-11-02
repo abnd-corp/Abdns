@@ -52,7 +52,7 @@ the server is reached without any plaintext lookup; \fBtoken_file\fR, a root-onl
 content is appended to \fBurl\fR (which then ends with \fB/\fR).
 .TP
 .B network_services
-macOS network services whose DNS points to abdnsd (default \fB["Wi-Fi"]\fR).
+macOS network services whose DNS points to abdnsd (default \fB["Wi-Fi"]\fR). Ignored on Linux, where abdnsd takes over the physical interfaces the computer goes out by.
 .TP
 .BR state_dir ", " clear_log
 State directory (default \fI/var/run/abdns\fR) and log of names sent in clear (default

@@ -15,4 +15,6 @@ reqwest 0.13 : `rustls` est le TLS par défaut, avec aws-lc-rs ; `rustls-no-prov
 
 Outils système macOS appelés : `route`, `ipconfig`, `networksetup`, `osascript`, `launchctl`, `stat`, `open`.
 
+Outils système Linux appelés : `ip`, `resolvectl` (systemd-resolved), `nmcli` (NetworkManager, facultatif), `systemctl`, `loginctl`, `runuser`, `id`, `journalctl`, `notify-send` (libnotify), `xdg-open` (xdg-utils).
+
 Outils de publication : `lipo` (binaire macOS universel), `gh` (versions GitHub), Homebrew (`packaging/homebrew/abdns.rb`), `installShellFiles` (Nix).

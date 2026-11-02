@@ -1,4 +1,4 @@
-//! Linux et Windows : pas encore pris en charge. Le relais et la garde fonctionnent
+//! Windows : pas encore pris en charge. Le relais et la garde fonctionnent
 //! (essais avec `--no-system`), mais le poste n'est ni réglé ni notifié.
 
 use std::path::Path;
@@ -26,6 +26,11 @@ pub fn network() -> Option<Network> {
 
 pub fn set_system_dns(_config: &Config, _relay: bool) -> Result<()> {
     bail!("setting the system DNS is not supported on this platform yet")
+}
+
+/// Rien à surveiller : le DNS du système n'est pas réglé ici.
+pub fn keep_system_dns(_config: &Config) -> Result<()> {
+    Ok(())
 }
 
 pub fn notify(title: &str, body: &str) {

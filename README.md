@@ -1,12 +1,14 @@
 # abdns — encrypted DNS for your computer, with captive portal support
 
+<p align="center"><img src="docs/assets/social-preview.png" alt="abdns — encrypted DNS for your computer" width="640"></p>
+
 [![CI](https://github.com/abnd-corp/Abdns/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/abnd-corp/Abdns/actions/workflows/ci.yml)
 
 **English** · [Français](README.fr.md)
 
-**abdns is a local DNS-over-HTTPS (DoH) client for macOS. It sends every DNS query to your own resolver first, then to encrypted fallbacks in the order you choose, and uses the network's DNS only as a last resort — for example to sign in to a captive portal on train, hotel or airport Wi-Fi. Every name sent in clear is reported to you.**
+**abdns is a local DNS-over-HTTPS (DoH) client for macOS and Linux. It sends every DNS query to your own resolver first, then to encrypted fallbacks in the order you choose, and uses the network's DNS only as a last resort — for example to sign in to a captive portal on train, hotel or airport Wi-Fi. Every name sent in clear is reported to you.**
 
-It is written in Rust: a small service (`abdnsd`) and a command-line tool (`abdns`), with its own DoH client (rustls, HTTP/2, the system's certificate store). Linux and Windows support is planned.
+It is written in Rust: a small service (`abdnsd`) and a command-line tool (`abdns`), with its own DoH client (rustls, HTTP/2, the system's certificate store). Windows support is planned.
 
 ## Why
 
@@ -61,11 +63,11 @@ Set `local_fallback = false` to forbid this last resort: portals will then not o
 
 On top of that, never more than 6 notifications in 10 minutes; the rest only goes to the log.
 
-## Installation (macOS)
+## Installation (macOS and Linux)
 
 abdns is two programs, like OpenSSH's `sshd` and `ssh`: **`abdnsd`**, the service, the only part that runs as root; and **`abdns`**, the command-line tool, which drives it over a protected local socket (administrators can change the mode or reload without `sudo`).
 
-### Homebrew
+### Homebrew (macOS)
 
 Available with the first published version.
 
@@ -75,7 +77,7 @@ nano "$(brew --prefix)/etc/abdns/config.toml"   # your servers, in order
 sudo brew services start abdns
 ```
 
-### Release archive
+### Release archive (macOS)
 
 Available with the first published version.
 
@@ -95,7 +97,19 @@ make release
 sudo make install         # binaries, manual pages, launchd service
 ```
 
-### With nix-darwin
+### Linux
+
+Linux needs systemd and systemd-resolved (`resolvectl`). NetworkManager (`nmcli`) is optional but recommended: abdns reads the network's DNS from its DHCP lease and gives it back when it stops.
+
+```sh
+make release
+sudo mkdir -p /etc/abdns && sudo cp config.example.toml /etc/abdns/config.toml   # your servers, in order
+sudo make install         # binaries, manual pages, abdnsd.service (systemd)
+```
+
+Notifications and the captive portal page need `notify-send` (libnotify) and `xdg-open` (xdg-utils) in a graphical session. The log is `abdns logs -f` (`journalctl -u abdnsd`).
+
+### With nix-darwin (macOS)
 
 ```nix
 # flake.nix
@@ -152,7 +166,7 @@ url = "https://1.1.1.1/dns-query"
 | `local_fallback` | `true` | Use the network DNS when no server answers (captive portals) |
 | `listen` | `127.0.0.1:53`, `[::1]:53` | Where the system sends its queries (restart to change) |
 | `server` | — | DoH servers, in order: `name`, `url`, `ip` (required if the URL uses a host name), `token_file` |
-| `network_services` | `["Wi-Fi"]` | macOS network services pointed to abdns |
+| `network_services` | `["Wi-Fi"]` | macOS network services pointed to abdns (ignored on Linux: every physical interface the computer goes out by) |
 | `state_dir` | `/var/run/abdns` | Status and forced mode |
 | `clear_log` | `/var/log/abdns/clear.log` | Names sent in clear |
 
@@ -174,7 +188,7 @@ abdns --json status           # machine-readable output
 
 Manual pages: `man abdns`, `man abdnsd`. Shell completion: `abdns completions zsh|bash|fish` (installed automatically by Homebrew and Nix). Names sent in clear are all in `/var/log/abdns/clear.log`.
 
-Notifications are shown through `osascript`: allow **Script Editor** in System Settings › Notifications.
+Notifications are shown through `osascript`: allow **Script Editor** in System Settings › Notifications. On Linux they go through `notify-send`, in the graphical session of the logged-in user.
 
 ## FAQ
 
@@ -197,14 +211,15 @@ Yes. Edit the configuration file: abdns reloads it within 5 seconds and confirms
 Yes. A VPN such as Proton VPN or WireGuard sets its own DNS while connected; abdns is used again as soon as it disconnects.
 
 **What happens if abdns crashes?**
-The system DNS is set back to the network's, and launchd restarts abdns within 30 seconds.
+The system DNS is set back to the network's, and launchd (macOS) or systemd (Linux) restarts abdns within 30 seconds.
 
 **Do I need Nix?**
 No. Homebrew, the release archive and `make install` work without it.
 
 ## Limitations
 
-- macOS only for now; Linux and Windows are planned (`src/platform/`).
+- macOS and Linux for now; Windows is planned (`src/platform/`).
+- Linux: systemd-resolved is required. abdns takes over the physical interfaces (Ethernet, Wi-Fi) the computer goes out by, not VPNs, bridges or containers, which keep their own DNS. If something else changes that setting, abdns sets it again within 5 seconds. If abdns is killed without warning (SIGKILL), the system keeps pointing to it until systemd restarts it, within 30 seconds.
 - In local mode, answers are not DNSSEC-validated, and a network that deliberately blocks encrypted DNS gets local mode. Notifications make it visible; `local_fallback = false` or `abdns mode encrypted` forbids it.
 - The network DNS is the one of the DHCP lease (IPv4).
 - Browsers or apps with their own secure DNS setting, and iCloud Private Relay, bypass the system DNS. Set Firefox and Chrome secure DNS to "system".
@@ -227,7 +242,7 @@ make check                      # formatting, Clippy (warnings as errors), tests
 make build
 ```
 
-To try abdns without touching the system DNS, use a `listen` port above 1024 and run `cargo run -- --config my.toml service --no-system`, then query it with `dig @127.0.0.1 -p <port> example.com`. Only `src/platform/` depends on the operating system: Linux and Windows support means implementing its functions there. Dependencies and their changelogs: [`docs/stack.md`](docs/stack.md); design decisions: [`docs/adr/`](docs/adr/).
+To try abdns without touching the system DNS, use a `listen` port above 1024 and run `cargo run -- --config my.toml service --no-system`, then query it with `dig @127.0.0.1 -p <port> example.com`. Only `src/platform/` depends on the operating system: Windows support means implementing its functions there. Dependencies and their changelogs: [`docs/stack.md`](docs/stack.md); design decisions: [`docs/adr/`](docs/adr/).
 
 ## Contributing
 

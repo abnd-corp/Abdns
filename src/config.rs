@@ -28,7 +28,7 @@ pub struct Config {
     /// Domaines demandés au DNS du réseau.
     #[serde(default = "default_clear_log")]
     pub clear_log: PathBuf,
-    /// macOS : services réseau dont le DNS est réglé sur le relais.
+    /// macOS : services réseau dont le DNS est réglé sur le relais (sans objet sous Linux).
     #[serde(default = "default_network_services")]
     pub network_services: Vec<String>,
 }

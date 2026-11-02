@@ -1,12 +1,14 @@
 # abdns — DNS chiffré pour votre ordinateur, compatible avec les portails captifs
 
+<p align="center"><img src="docs/assets/social-preview.png" alt="abdns — DNS chiffré pour votre ordinateur" width="640"></p>
+
 [![CI](https://github.com/abnd-corp/Abdns/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/abnd-corp/Abdns/actions/workflows/ci.yml)
 
 [English](README.md) · **Français**
 
-**abdns est un client DNS-over-HTTPS (DoH) local pour macOS. Il envoie chaque requête DNS d'abord à votre propre résolveur, puis à des secours chiffrés dans l'ordre que vous choisissez, et n'utilise le DNS du réseau qu'en dernier recours, par exemple pour se connecter au portail captif du Wi-Fi d'un train, d'un hôtel ou d'un aéroport. Chaque domaine envoyé en clair vous est signalé.**
+**abdns est un client DNS-over-HTTPS (DoH) local pour macOS et Linux. Il envoie chaque requête DNS d'abord à votre propre résolveur, puis à des secours chiffrés dans l'ordre que vous choisissez, et n'utilise le DNS du réseau qu'en dernier recours, par exemple pour se connecter au portail captif du Wi-Fi d'un train, d'un hôtel ou d'un aéroport. Chaque domaine envoyé en clair vous est signalé.**
 
-Il est écrit en Rust : un petit service (`abdnsd`) et un outil en ligne de commande (`abdns`), avec son propre client DoH (rustls, HTTP/2, magasin de certificats du système). Linux et Windows sont prévus.
+Il est écrit en Rust : un petit service (`abdnsd`) et un outil en ligne de commande (`abdns`), avec son propre client DoH (rustls, HTTP/2, magasin de certificats du système). Windows est prévu.
 
 ## Pourquoi
 
@@ -61,11 +63,11 @@ applications ──► abdns (127.0.0.1:53) ──DoH──► serveur 1 (votre 
 
 En plus, jamais plus de 6 notifications en 10 minutes ; le reste va seulement au journal.
 
-## Installation (macOS)
+## Installation (macOS et Linux)
 
 abdns est fait de deux programmes, comme `sshd` et `ssh` d'OpenSSH : **`abdnsd`**, le service, seule partie qui tourne en administrateur ; et **`abdns`**, l'outil en ligne de commande, qui le pilote par une socket locale protégée (un administrateur change le mode ou relit la configuration sans `sudo`).
 
-### Homebrew
+### Homebrew (macOS)
 
 Disponible avec la première version publiée.
 
@@ -75,7 +77,7 @@ nano "$(brew --prefix)/etc/abdns/config.toml"   # vos serveurs, dans l'ordre
 sudo brew services start abdns
 ```
 
-### Archive d'une version
+### Archive d'une version (macOS)
 
 Disponible avec la première version publiée.
 
@@ -95,7 +97,19 @@ make release
 sudo make install         # programmes, pages de manuel, service launchd
 ```
 
-### Avec nix-darwin
+### Linux
+
+Linux demande systemd et systemd-resolved (`resolvectl`). NetworkManager (`nmcli`) est facultatif mais conseillé : abdns lit le DNS du réseau dans son bail DHCP et le lui rend quand il s'arrête.
+
+```sh
+make release
+sudo mkdir -p /etc/abdns && sudo cp config.example.toml /etc/abdns/config.toml   # vos serveurs, dans l'ordre
+sudo make install         # programmes, pages de manuel, abdnsd.service (systemd)
+```
+
+Les notifications et la page du portail captif demandent `notify-send` (libnotify) et `xdg-open` (xdg-utils) dans une session graphique. Le journal : `abdns logs -f` (`journalctl -u abdnsd`).
+
+### Avec nix-darwin (macOS)
 
 ```nix
 # flake.nix
@@ -165,7 +179,7 @@ abdns --json status           # sortie pour les scripts
 
 Pages de manuel : `man abdns`, `man abdnsd`. Autocomplétion : `abdns completions zsh|bash|fish` (installée d'office par Homebrew et Nix). Tous les domaines envoyés en clair sont dans `/var/log/abdns/clear.log`.
 
-Les notifications passent par `osascript` : autoriser **Éditeur de script** dans Réglages › Notifications.
+Les notifications passent par `osascript` : autoriser **Éditeur de script** dans Réglages › Notifications. Sous Linux, elles passent par `notify-send`, dans la session graphique de l'utilisateur connecté.
 
 ## Questions fréquentes
 
@@ -188,14 +202,15 @@ Oui. Modifiez le fichier de configuration : abdns le relit en moins de 5 seconde
 Oui. Un VPN comme Proton VPN ou WireGuard impose son propre DNS tant qu'il est connecté ; abdns reprend dès la déconnexion.
 
 **Que se passe-t-il si abdns plante ?**
-Le DNS du poste est remis sur celui du réseau, et launchd relance abdns en moins de 30 secondes.
+Le DNS du poste est remis sur celui du réseau, et launchd (macOS) ou systemd (Linux) relance abdns en moins de 30 secondes.
 
 **Faut-il Nix ?**
 Non. Homebrew, l'archive d'une version et `make install` fonctionnent sans.
 
 ## Limites
 
-- macOS seulement pour l'instant ; Linux et Windows sont prévus (`src/platform/`).
+- macOS et Linux pour l'instant ; Windows est prévu (`src/platform/`).
+- Linux : systemd-resolved est nécessaire. abdns prend en charge les interfaces physiques (Ethernet, Wi-Fi) par lesquelles le poste sort, pas les VPN, ponts ni conteneurs, qui gardent leur DNS. Si autre chose change ce réglage, abdns le refait en moins de 5 secondes. Si abdns est tué sans préavis (SIGKILL), le système reste réglé sur lui jusqu'à ce que systemd le relance, en moins de 30 secondes.
 - En mode local, les réponses ne sont pas vérifiées par DNSSEC, et un réseau qui bloque exprès le DNS chiffré obtient le mode local. Les notifications le montrent ; `local_fallback = false` ou `abdns mode encrypted` l'interdisent.
 - Le DNS du réseau est celui du bail DHCP (IPv4).
 - Les navigateurs ou applications réglés sur leur propre DNS sécurisé, et le Relais privé iCloud, contournent le DNS du système. Régler le DNS sécurisé de Firefox et Chrome sur « système ».
@@ -207,7 +222,7 @@ make check                      # formatage, Clippy (avertissements bloquants), 
 make build
 ```
 
-Pour essayer abdns sans toucher au DNS du système : un port `listen` au-dessus de 1024, `cargo run -- --config essai.toml service --no-system`, puis `dig @127.0.0.1 -p <port> example.com`. Seul `src/platform/` dépend du système : Linux et Windows s'y ajoutent. Dépendances et changelogs : [`docs/stack.md`](docs/stack.md) ; décisions : [`docs/adr/`](docs/adr/).
+Pour essayer abdns sans toucher au DNS du système : un port `listen` au-dessus de 1024, `cargo run -- --config essai.toml service --no-system`, puis `dig @127.0.0.1 -p <port> example.com`. Seul `src/platform/` dépend du système : Windows s'y ajoutera. Dépendances et changelogs : [`docs/stack.md`](docs/stack.md) ; décisions : [`docs/adr/`](docs/adr/).
 
 ## Contribuer
 
