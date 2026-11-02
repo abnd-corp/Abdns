@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>abdns</title>
+  <defs>
+    <!-- Marque : les orbites du logo de l'organisation, un cadenas au centre. -->
+    <g id="mark">
+      <g fill="none" stroke="#ffffff" stroke-width="11">
+        <ellipse cx="0" cy="0" rx="205" ry="66" transform="rotate(90)"/>
+        <ellipse cx="0" cy="0" rx="205" ry="66" transform="rotate(30)"/>
+        <ellipse cx="0" cy="0" rx="205" ry="66" transform="rotate(-30)"/>
+      </g>
+      <path d="M -26 -6 V -30 A 26 26 0 0 1 26 -30 V -6" fill="none" stroke="#ee1d23" stroke-width="13" stroke-linecap="round"/>
+      <rect x="-44" y="-12" width="88" height="70" rx="14" fill="#ee1d23"/>
+      <circle cx="0" cy="16" r="9" fill="#000000"/>
+      <rect x="-4" y="18" width="8" height="20" rx="3" fill="#000000"/>
+    </g>
+  </defs>
+  <rect width="512" height="512" fill="#000000"/>
+  <use href="#mark" transform="translate(256 256) scale(1.05)"/>
+</svg>
