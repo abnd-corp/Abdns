@@ -26,7 +26,7 @@ fmt: ## Formate le code
 
 check: lint test ## Ce qui doit passer avant d'ouvrir une PR (R4)
 
-install: ## Installe abdns, abdnsd, les pages de manuel et le service (macOS, sudo, après `make release`)
+install: ## Installe abdns, abdnsd, les pages de manuel et le service (macOS et Linux, sudo, après `make release`)
 	@test -x target/release/abdnsd || { echo "run make release first (without sudo)"; exit 1; }
 	install -d $(PREFIX)/bin $(PREFIX)/share/man/man1 $(PREFIX)/share/man/man8
 	install -m 755 target/release/abdns target/release/abdnsd $(PREFIX)/bin/
