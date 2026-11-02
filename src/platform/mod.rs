@@ -31,8 +31,3 @@ impl Network {
         format!("{} via {}", self.interface, self.gateway)
     }
 }
-
-/// Retire les adresses de boucle locale : le DNS du réseau ne peut pas être le relais.
-pub fn external(dns: impl IntoIterator<Item = IpAddr>) -> Vec<IpAddr> {
-    dns.into_iter().filter(|ip| !ip.is_loopback() && !ip.is_unspecified()).collect()
-}
