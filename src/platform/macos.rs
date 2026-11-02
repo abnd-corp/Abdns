@@ -52,7 +52,22 @@ pub fn network() -> Option<Network> {
     let gateway = field(&route, "gateway").unwrap_or("-").to_owned();
     // Un VPN (utun) n'a pas de bail DHCP : pas de DNS du réseau à proposer.
     let packet = output("/usr/sbin/ipconfig", &["getpacket", &interface]).unwrap_or_default();
-    Some(Network { interface, gateway, dns: dhcp_dns(&packet), domain: dhcp_domain(&packet) })
+    let ports = output("/usr/sbin/networksetup", &["-listallhardwareports"]).unwrap_or_default();
+    let label = hardware_port(&ports, &interface).unwrap_or(&interface).to_owned();
+    Some(Network { dns: dhcp_dns(&packet), domain: dhcp_domain(&packet), label, interface, gateway })
+}
+
+/// Nom du port matériel d'une interface : « Hardware Port: Wi-Fi » suivi de « Device: en0 ».
+fn hardware_port<'a>(ports: &'a str, interface: &str) -> Option<&'a str> {
+    let mut port = None;
+    for line in ports.lines() {
+        if let Some(name) = line.strip_prefix("Hardware Port: ") {
+            port = Some(name.trim());
+        } else if line.strip_prefix("Device: ").map(str::trim) == Some(interface) {
+            return port;
+        }
+    }
+    None
 }
 
 /// `relay` : DNS des services réseau sur le relais ; sinon, DNS du réseau (réglage vidé).
@@ -182,6 +197,14 @@ mod tests {
         assert_eq!(dhcp_domain(packet).as_deref(), Some("home"));
         assert!(dhcp_dns("op = BOOTREPLY\n").is_empty());
         assert_eq!(dhcp_domain("domain_name (string): a b\n"), None);
+    }
+
+    #[test]
+    fn hardware_ports() {
+        let ports = "\nHardware Port: Ethernet Adapter (en4)\nDevice: en4\nEthernet Address: x\n\nHardware Port: Wi-Fi\nDevice: en0\nEthernet Address: y\n";
+        assert_eq!(hardware_port(ports, "en0"), Some("Wi-Fi"));
+        assert_eq!(hardware_port(ports, "en4"), Some("Ethernet Adapter (en4)"));
+        assert_eq!(hardware_port(ports, "utun3"), None);
     }
 
     #[test]

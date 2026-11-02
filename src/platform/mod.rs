@@ -23,6 +23,8 @@ pub struct Network {
     pub dns: Vec<IpAddr>,
     /// Domaine local annoncé par le réseau (DHCP), s'il y en a un.
     pub domain: Option<String>,
+    /// Nom montré à l'utilisateur (« Wi-Fi »), sans adresse.
+    pub label: String,
 }
 
 impl Network {

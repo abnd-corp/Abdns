@@ -152,9 +152,168 @@ pub fn ipv4_answers(msg: &[u8]) -> Vec<Ipv4Addr> {
     found
 }
 
+const OPT: u16 = 41;
+const SOA: u16 = 6;
+/// Durée de vie maximale en cache, et durée donnée à une réponse sans enregistrement.
+const MAX_TTL: u32 = 86_400;
+const EMPTY_TTL: u32 = 30;
+
+fn count(msg: &[u8], at: usize) -> u16 {
+    msg.get(at..at + 2).map_or(0, |b| u16::from_be_bytes([b[0], b[1]]))
+}
+
+/// Enregistrement d'un message : type, classe, position de la durée de vie, données.
+struct Record {
+    rtype: u16,
+    class: u16,
+    ttl_at: usize,
+    data: std::ops::Range<usize>,
+}
+
+/// Enregistrements des sections réponse, autorité et additionnelle ; `None` si le message
+/// est tronqué ou mal formé.
+fn records(msg: &[u8]) -> Option<Vec<Record>> {
+    let mut pos = HEADER;
+    for _ in 0..count(msg, 4) {
+        pos = skip_name(msg, pos)? + 4;
+    }
+    let total = usize::from(count(msg, 6)) + usize::from(count(msg, 8)) + usize::from(count(msg, 10));
+    let mut found = Vec::with_capacity(total);
+    for _ in 0..total {
+        let p = skip_name(msg, pos)?;
+        let fixed = msg.get(p..p + 10)?;
+        let len = usize::from(u16::from_be_bytes([fixed[8], fixed[9]]));
+        let data = p + 10..p + 10 + len;
+        msg.get(data.clone())?;
+        found.push(Record {
+            rtype: u16::from_be_bytes([fixed[0], fixed[1]]),
+            class: u16::from_be_bytes([fixed[2], fixed[3]]),
+            ttl_at: p + 4,
+            data: data.clone(),
+        });
+        pos = data.end;
+    }
+    Some(found)
+}
+
+fn ttl(msg: &[u8], at: usize) -> u32 {
+    u32::from_be_bytes([msg[at], msg[at + 1], msg[at + 2], msg[at + 3]])
+}
+
+/// Clé de cache : question en minuscules, type, classe, bits DO (EDNS) et CD.
+pub fn cache_key(query: &[u8]) -> Option<Vec<u8>> {
+    if count(query, 4) != 1 {
+        return None;
+    }
+    let end = skip_name(query, HEADER)? + 4;
+    let mut key: Vec<u8> = query.get(HEADER..end)?.iter().map(u8::to_ascii_lowercase).collect();
+    let dnssec_ok = records(query)?.iter().any(|r| r.rtype == OPT && ttl(query, r.ttl_at) & 0x8000 != 0);
+    key.push(u8::from(dnssec_ok) | (query[3] & 0x10));
+    Some(key)
+}
+
+/// Taille de réponse UDP acceptée par le client (EDNS), 512 octets sans EDNS.
+pub fn udp_limit(query: &[u8]) -> usize {
+    records(query).and_then(|r| r.iter().find(|r| r.rtype == OPT).map(|r| usize::from(r.class).max(512))).unwrap_or(512)
+}
+
+/// Réponse trop grande pour UDP : en-tête et question seuls, bit TC, le client repasse en TCP.
+pub fn truncated(reply: &[u8]) -> Option<Vec<u8>> {
+    let end = if count(reply, 4) > 0 { skip_name(reply, HEADER)? + 4 } else { HEADER };
+    let mut short = reply.get(..end)?.to_vec();
+    short[2] |= 0x02;
+    short[6..12].fill(0);
+    Some(short)
+}
+
+/// Durée de cache d'une réponse : la plus petite durée de vie (pour SOA, bornée par son
+/// minimum, RFC 2308) ; `None` si elle ne se met pas en cache (erreur, tronquée).
+pub fn cache_ttl(reply: &[u8]) -> Option<u32> {
+    if reply.len() < HEADER || reply[2] & 0x02 != 0 || !matches!(rcode(reply), Some(0 | NXDOMAIN)) {
+        return None;
+    }
+    let ttls = records(reply)?.into_iter().filter(|r| r.rtype != OPT).map(|r| {
+        let t = ttl(reply, r.ttl_at);
+        if r.rtype == SOA && r.data.len() >= 4 { t.min(ttl(reply, r.data.end - 4)) } else { t }
+    });
+    Some(ttls.min().unwrap_or(EMPTY_TTL).min(MAX_TTL))
+}
+
+/// Applique `f` à la durée de vie de chaque enregistrement (sauf OPT).
+pub fn map_ttls(reply: &mut [u8], f: impl Fn(u32) -> u32) {
+    for record in records(reply).unwrap_or_default() {
+        if record.rtype != OPT {
+            let new = f(ttl(reply, record.ttl_at));
+            reply[record.ttl_at..record.ttl_at + 4].copy_from_slice(&new.to_be_bytes());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Réponse A de `example.com` avec une durée de vie, éventuellement EDNS côté requête.
+    fn answer(ttl: u32) -> Vec<u8> {
+        let mut r = query(9, "example.com", 1);
+        r[2] = 0x81;
+        r[3] = 0x80;
+        r[7] = 1;
+        r.extend_from_slice(&[0xc0, 12, 0, 1, 0, 1]);
+        r.extend_from_slice(&ttl.to_be_bytes());
+        r.extend_from_slice(&[0, 4, 93, 184, 216, 34]);
+        r
+    }
+
+    fn with_opt(mut q: Vec<u8>, size: u16, dnssec_ok: bool) -> Vec<u8> {
+        q[11] = 1;
+        q.extend_from_slice(&[0, 0, 41]);
+        q.extend_from_slice(&size.to_be_bytes());
+        q.extend_from_slice(&[0, 0, if dnssec_ok { 0x80 } else { 0 }, 0, 0, 0]);
+        q
+    }
+
+    #[test]
+    fn cache_keys() {
+        let plain = cache_key(&query(1, "Example.COM", 1)).unwrap();
+        assert_eq!(plain, cache_key(&query(2, "example.com", 1)).unwrap());
+        assert_ne!(plain, cache_key(&query(1, "example.com", 28)).unwrap());
+        let dnssec = cache_key(&with_opt(query(1, "example.com", 1), 1232, true)).unwrap();
+        assert_ne!(plain, dnssec);
+        assert_eq!(plain, cache_key(&with_opt(query(1, "example.com", 1), 1232, false)).unwrap());
+    }
+
+    #[test]
+    fn udp_sizes() {
+        assert_eq!(udp_limit(&query(1, "example.com", 1)), 512);
+        assert_eq!(udp_limit(&with_opt(query(1, "example.com", 1), 1232, false)), 1232);
+        assert_eq!(udp_limit(&with_opt(query(1, "example.com", 1), 100, false)), 512);
+        let short = truncated(&answer(60)).unwrap();
+        assert_eq!(short[2] & 0x02, 0x02);
+        assert_eq!(&short[12..], &query(9, "example.com", 1)[12..]);
+        assert_eq!(count(&short, 6), 0);
+    }
+
+    #[test]
+    fn ttls() {
+        assert_eq!(cache_ttl(&answer(300)), Some(300));
+        assert_eq!(cache_ttl(&answer(999_999)), Some(MAX_TTL));
+        let mut r = answer(300);
+        map_ttls(&mut r, |t| t - 100);
+        assert_eq!(cache_ttl(&r), Some(200));
+        let mut failed = answer(300);
+        failed[3] = 0x82;
+        assert_eq!(cache_ttl(&failed), None);
+        assert_eq!(cache_ttl(&answer(300)[..answer(300).len() - 2]), None);
+        // NXDOMAIN avec SOA : durée bornée par le minimum du SOA.
+        let mut nx = query(4, "nope.example.com", 1);
+        nx[2] = 0x81;
+        nx[3] = 0x83;
+        nx[9] = 1;
+        nx.extend_from_slice(&[0xc0, 17, 0, 6, 0, 1, 0, 0, 0x0e, 0x10, 0, 22, 0, 0]);
+        nx.extend_from_slice(&[0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 60]);
+        assert_eq!(cache_ttl(&nx), Some(60));
+    }
 
     #[test]
     fn query_and_question() {

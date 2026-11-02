@@ -1,4 +1,4 @@
-//! Relais DNS local (UDP et TCP) : chaque requête va à dnsproxy (chiffré) ou, en dernier
+//! Relais DNS local (UDP et TCP) : chaque requête va au client DoH (chiffré) ou, en dernier
 //! recours, au DNS du réseau. Le choix est fait par la garde, jamais requête par requête :
 //! un SERVFAIL (signature DNSSEC cassée, par exemple) ne fait pas basculer en clair.
 //! Les noms du réseau local (`nas.lan`, inverse de 192.168.x.x…) vont toujours au DNS du
@@ -14,13 +14,13 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 
 use crate::dns;
+use crate::doh::Resolver;
 
 /// Requêtes ou connexions traitées en même temps ; au-delà, les nouvelles sont ignorées
 /// (le client réessaie).
 const MAX_ACTIVE: usize = 256;
 /// En attente d'affichage : au-delà, les noms ne sont plus listés (le journal les garde).
 const MAX_PENDING: usize = 1000;
-const PROXY_TIMEOUT: Duration = Duration::from_secs(6);
 const NETWORK_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Le réseau vu par le relais, tenu à jour par la garde.
@@ -31,7 +31,8 @@ pub struct Lan {
 }
 
 pub struct Shared {
-    pub proxy: SocketAddr,
+    /// Remplacé à chaud quand la configuration change.
+    pub resolver: RwLock<Arc<Resolver>>,
     /// Vrai : DNS du réseau pour tout (dernier recours).
     pub local_mode: RwLock<bool>,
     pub lan: RwLock<Lan>,
@@ -48,15 +49,24 @@ impl Drop for Slot<'_> {
     }
 }
 
+enum Route {
+    Encrypted,
+    Network(Vec<SocketAddr>),
+}
+
 impl Shared {
-    pub fn new(proxy: SocketAddr) -> Arc<Self> {
+    pub fn new(resolver: Resolver) -> Arc<Self> {
         Arc::new(Self {
-            proxy,
+            resolver: RwLock::new(Arc::new(resolver)),
             local_mode: RwLock::new(false),
             lan: RwLock::new(Lan::default()),
             clear: Mutex::new(Vec::new()),
             active: AtomicUsize::new(0),
         })
+    }
+
+    pub fn resolver(&self) -> Arc<Resolver> {
+        self.resolver.read().map(|r| r.clone()).expect("resolver lock")
     }
 
     fn slot(&self) -> Option<Slot<'_>> {
@@ -67,26 +77,28 @@ impl Shared {
         Some(Slot(&self.active))
     }
 
-    fn targets(&self, query: &[u8]) -> (Vec<SocketAddr>, Duration) {
+    fn route(&self, query: &[u8]) -> Route {
         let lan = self.lan.read().map(|l| l.clone()).unwrap_or_default();
         let local_mode = self.local_mode.read().map(|m| *m).unwrap_or(false);
         let name = dns::question(query);
         let local_name = name.as_deref().is_some_and(|n| dns::is_local(n, lan.domain.as_deref()));
-        if !lan.servers.is_empty() && (local_name || local_mode) {
-            if !local_name
-                && let (Some(name), Ok(mut clear)) = (name, self.clear.lock())
-                && clear.len() < MAX_PENDING
-            {
-                clear.push(name);
-            }
-            return (lan.servers, NETWORK_TIMEOUT);
+        if lan.servers.is_empty() || !(local_name || local_mode) {
+            return Route::Encrypted;
         }
-        (vec![self.proxy], PROXY_TIMEOUT)
+        if !local_name
+            && let (Some(name), Ok(mut clear)) = (name, self.clear.lock())
+            && clear.len() < MAX_PENDING
+        {
+            clear.push(name);
+        }
+        Route::Network(lan.servers)
     }
 
     fn resolve(&self, query: &[u8], tcp: bool) -> Option<Vec<u8>> {
-        let (targets, timeout) = self.targets(query);
-        targets.into_iter().find_map(|server| exchange(server, query, tcp, timeout).ok())
+        match self.route(query) {
+            Route::Encrypted => self.resolver().resolve(query),
+            Route::Network(servers) => servers.into_iter().find_map(|s| exchange(s, query, tcp, NETWORK_TIMEOUT).ok()),
+        }
     }
 }
 
@@ -149,7 +161,10 @@ fn serve_udp(socket: UdpSocket, shared: Arc<Shared>) {
         let (socket, shared) = (socket.clone(), shared.clone());
         thread::spawn(move || {
             let Some(_slot) = shared.slot() else { return };
-            if let Some(reply) = shared.resolve(&query, false).or_else(|| dns::servfail(&query)) {
+            let reply = shared.resolve(&query, false).or_else(|| dns::servfail(&query));
+            // Réponse DoH plus grande que ce que le client accepte en UDP : il repassera en TCP.
+            let reply = reply.and_then(|r| if r.len() > dns::udp_limit(&query) { dns::truncated(&r) } else { Some(r) });
+            if let Some(reply) = reply {
                 socket.send_to(&reply, client).ok();
             }
         });
@@ -174,7 +189,7 @@ fn serve_tcp(listener: TcpListener, shared: Arc<Shared>) {
 }
 
 /// Ouvre toutes les adresses d'écoute avant de rendre la main : une adresse prise fait
-/// échouer le démarrage (la garde remet alors le DNS du réseau).
+/// échouer le démarrage (le DNS du réseau est alors remis).
 pub fn start(addresses: &[SocketAddr], shared: &Arc<Shared>) -> Result<()> {
     let mut sockets = Vec::new();
     for &addr in addresses {
@@ -193,32 +208,42 @@ pub fn start(addresses: &[SocketAddr], shared: &Arc<Shared>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
 
-    fn shared(local_mode: bool) -> Arc<Shared> {
-        let shared = Shared::new(SocketAddr::from(([127, 0, 0, 1], 5300)));
+    fn shared(local_mode: bool, lan: bool) -> Arc<Shared> {
+        let config = Config::parse(include_str!("../config.example.toml")).unwrap();
+        let shared = Shared::new(Resolver::new(&config).unwrap());
         *shared.local_mode.write().unwrap() = local_mode;
-        *shared.lan.write().unwrap() = Lan { servers: vec![SocketAddr::from(([192, 168, 1, 1], 53))], domain: Some("home".into()) };
+        if lan {
+            *shared.lan.write().unwrap() = Lan { servers: vec![SocketAddr::from(([192, 168, 1, 1], 53))], domain: Some("home".into()) };
+        }
         shared
+    }
+
+    fn network(route: Route) -> Option<Vec<SocketAddr>> {
+        match route {
+            Route::Encrypted => None,
+            Route::Network(servers) => Some(servers),
+        }
     }
 
     #[test]
     fn routing() {
-        let lan = SocketAddr::from(([192, 168, 1, 1], 53));
-        let encrypted = shared(false);
-        assert_eq!(encrypted.targets(&dns::query(1, "example.com", 1)).0, vec![encrypted.proxy]);
-        assert_eq!(encrypted.targets(&dns::query(1, "12.1.168.192.in-addr.arpa", 12)).0, vec![lan]);
-        assert_eq!(encrypted.targets(&dns::query(1, "nas.home", 1)).0, vec![lan]);
+        let lan = Some(vec![SocketAddr::from(([192, 168, 1, 1], 53))]);
+        let encrypted = shared(false, true);
+        assert_eq!(network(encrypted.route(&dns::query(1, "example.com", 1))), None);
+        assert_eq!(network(encrypted.route(&dns::query(1, "12.1.168.192.in-addr.arpa", 12))), lan);
+        assert_eq!(network(encrypted.route(&dns::query(1, "nas.home", 1))), lan);
         assert!(encrypted.clear.lock().unwrap().is_empty());
 
-        let local = shared(true);
-        assert_eq!(local.targets(&dns::query(1, "example.com", 1)).0, vec![lan]);
-        assert_eq!(local.targets(&dns::query(1, "printer.local", 1)).0, vec![lan]);
+        let local = shared(true, true);
+        assert_eq!(network(local.route(&dns::query(1, "example.com", 1))), lan);
+        assert_eq!(network(local.route(&dns::query(1, "printer.local", 1))), lan);
         assert_eq!(*local.clear.lock().unwrap(), vec!["example.com".to_owned()]);
     }
 
     #[test]
     fn no_network_dns_stays_encrypted() {
-        let shared = Shared::new(SocketAddr::from(([127, 0, 0, 1], 5300)));
-        assert_eq!(shared.targets(&dns::query(1, "nas.lan", 1)).0, vec![shared.proxy]);
+        assert_eq!(network(shared(true, false).route(&dns::query(1, "nas.lan", 1))), None);
     }
 }

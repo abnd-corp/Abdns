@@ -1,17 +1,17 @@
-//! abdns : DNS chiffré du poste, avec son propre serveur DoH d'abord, des secours chiffrés,
-//! et le DNS du réseau seulement en dernier recours (portails captifs).
+//! abdns : DNS chiffré du poste, avec son propre serveur DoH d'abord, des secours chiffrés dans
+//! l'ordre, et le DNS du réseau seulement en dernier recours (portails captifs).
 
 mod config;
 mod dns;
+mod doh;
 mod guard;
 mod i18n;
 mod logbook;
 mod platform;
-mod proxy;
 mod relay;
 
-use std::io::Read;
-use std::path::PathBuf;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -23,12 +23,14 @@ use i18n::Text;
 const USAGE: &str = "Usage: abdns [--config FILE] <command>
   service [--no-system]        run the relay and the guard (as root);
                                --no-system leaves the system DNS untouched (testing)
-  status                       current mode, network, names looked up in clear
+  status                       current mode, servers, network, names looked up in clear
   mode auto|encrypted|local    force a mode (as root); auto by default
-  token                        store the upstream token read from standard input (as root)
+  token [SERVER]               store a server token read from standard input (as root)
   install                      install and start the system service (as root, macOS)
   uninstall                    stop and remove the system service, restore the network DNS (as root)
-  version                      print the version";
+  version                      print the version
+
+The configuration file is read again whenever it changes: no restart needed.";
 
 /// Relancé toutes les 30 s par le système après un échec : une notification par heure suffit.
 fn notify_failure(config: &Config, error: &anyhow::Error) {
@@ -41,7 +43,8 @@ fn notify_failure(config: &Config, error: &anyhow::Error) {
     }
 }
 
-fn service(config: Config, system: bool) -> Result<()> {
+fn service(config_path: &Path, system: bool) -> Result<()> {
+    let config = Config::read(config_path)?;
     std::fs::create_dir_all(&config.state_dir).with_context(|| format!("cannot create {}", config.state_dir.display()))?;
     if let Some(parent) = config.clear_log.parent() {
         std::fs::create_dir_all(parent).ok();
@@ -56,45 +59,41 @@ fn service(config: Config, system: bool) -> Result<()> {
             default(info);
         }));
     }
-    let stop = Arc::new(AtomicBool::new(false));
-    let shared = relay::Shared::new(config.proxy());
-    let mut supervisor = None;
-    let started = proxy::prepare(&config).and_then(|()| proxy::supervise(config.clone(), stop.clone())).and_then(|handle| {
-        supervisor = Some(handle);
-        relay::start(&config.listen, &shared)
+    let started = doh::Resolver::new(&config).and_then(|resolver| {
+        let shared = relay::Shared::new(resolver);
+        relay::start(&config.listen, &shared)?;
+        Ok(shared)
     });
-    if let Err(error) = started {
-        stop.store(true, Ordering::SeqCst);
-        if let Some(handle) = supervisor {
-            handle.join().ok();
+    let shared = match started {
+        Ok(shared) => shared,
+        Err(error) => {
+            if system {
+                platform::set_system_dns(&config, false).ok();
+                notify_failure(&config, &error);
+            }
+            return Err(error);
         }
-        if system {
-            platform::set_system_dns(&config, false).ok();
-            notify_failure(&config, &error);
-        }
-        return Err(error);
-    }
+    };
     std::fs::remove_file(config.state_dir.join("failure-notified")).ok();
-    let supervisor = supervisor.context("dnsproxy supervisor missing")?;
-    if !guard::wait_encrypted(&config, 15) {
-        logbook::log("dnsproxy does not answer yet: the guard will decide");
+    if !guard::wait_encrypted(&shared.resolver(), 15) {
+        logbook::log("no encrypted server answers yet: the guard will decide");
     }
     if system && let Err(error) = platform::set_system_dns(&config, true) {
         logbook::log(&format!("{error:#}"));
         platform::notify("abdns", &format!("{error:#}"));
     }
-    let fallbacks: Vec<&str> = config.fallback.iter().map(|s| s.name.as_str()).collect();
-    logbook::log(&format!("relay ready on {:?}; fallbacks: {}", config.listen, fallbacks.join(", ")));
+    let servers: Vec<&str> = config.server.iter().map(|s| s.name.as_str()).collect();
+    logbook::log(&format!("relay ready on {:?}; servers: {}", config.listen, servers.join(", ")));
+    let stop = Arc::new(AtomicBool::new(false));
     {
         let stop = stop.clone();
         ctrlc::set_handler(move || stop.store(true, Ordering::SeqCst)).context("cannot handle stop signals")?;
     }
-    guard::Guard::new(config.clone(), shared).run(&stop);
+    guard::Guard::new(config.clone(), config_path.to_path_buf(), system, shared).run(&stop);
     if system {
         // Arrêt voulu : le poste repasse sur le DNS du réseau.
         platform::set_system_dns(&config, false).ok();
     }
-    supervisor.join().ok();
     logbook::log("stopped");
     Ok(())
 }
@@ -120,9 +119,16 @@ fn set_mode(config: &Config, mode: &str) -> Result<()> {
     Ok(())
 }
 
-/// Jeton seul, ou adresse DoH complète dont il est le dernier segment.
-fn store_token(config: &Config) -> Result<()> {
-    let Some(path) = &config.upstream.token_file else { bail!("upstream.token_file is not set in the configuration") };
+/// Jeton seul, ou adresse DoH complète dont il est le dernier segment ; pour le serveur nommé,
+/// ou le seul serveur qui a un `token_file`.
+fn store_token(config: &Config, server: Option<&str>) -> Result<()> {
+    let candidates: Vec<_> = config.server.iter().filter(|s| s.token_file.is_some() && server.is_none_or(|n| s.name == n)).collect();
+    let target = match candidates.as_slice() {
+        [one] => *one,
+        [] => bail!("no server with token_file{}", server.map(|n| format!(" named {n}")).unwrap_or_default()),
+        _ => bail!("several servers have a token_file: name one (abdns token \"NAME\")"),
+    };
+    let path = target.token_file.as_ref().context("token_file")?;
     let mut input = String::new();
     std::io::stdin().read_to_string(&mut input)?;
     let token = input.trim().rsplit('/').next().unwrap_or_default();
@@ -130,7 +136,14 @@ fn store_token(config: &Config) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    proxy::write_private(path, &format!("{token}\n"))?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options
+        .open(path)
+        .and_then(|mut f| f.write_all(format!("{token}\n").as_bytes()))
+        .with_context(|| format!("cannot write {}", path.display()))?;
     println!("{}", Text(config.language).token_saved(&path.display().to_string()));
     Ok(())
 }
@@ -145,11 +158,12 @@ fn main() -> Result<()> {
     }
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     match args.as_slice() {
-        ["service"] => service(Config::read(&config_path)?, true),
-        ["service", "--no-system"] => service(Config::read(&config_path)?, false),
+        ["service"] => service(&config_path, true),
+        ["service", "--no-system"] => service(&config_path, false),
         ["status"] => status(&Config::read(&config_path)?),
         ["mode", mode] => set_mode(&Config::read(&config_path)?, mode),
-        ["token"] => store_token(&Config::read(&config_path)?),
+        ["token"] => store_token(&Config::read(&config_path)?, None),
+        ["token", server] => store_token(&Config::read(&config_path)?, Some(server)),
         ["install"] => {
             Config::read(&config_path)?;
             platform::install(&config_path)

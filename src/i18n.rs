@@ -32,10 +32,17 @@ impl Text {
         self.pick("Local mode forced".into(), "Mode local imposé".into())
     }
 
-    pub fn clear_body(&self, reason: &str, network: &str, servers: &str) -> String {
+    pub fn clear_body(&self, reason: &str, network: &str) -> String {
         self.pick(
-            format!("{reason} on {network}: using the network DNS ({servers}). Every name looked up will be reported."),
-            format!("{reason} sur {network} : le DNS du réseau ({servers}) est utilisé. Chaque domaine demandé vous sera signalé."),
+            format!("{reason} on {network}: using the network DNS. Names looked up will be reported."),
+            format!("{reason} sur {network} : le DNS du réseau est utilisé. Les domaines demandés vous seront signalés."),
+        )
+    }
+
+    pub fn local_disabled_body(&self, network: &str) -> String {
+        self.pick(
+            format!("No encrypted DNS answers on {network}, and the local fallback is disabled."),
+            format!("Aucun DNS chiffré ne répond sur {network}, et le dernier recours local est désactivé."),
         )
     }
 
@@ -81,6 +88,38 @@ impl Text {
             format!("For {minutes} min on {network}: encrypted DNS is still unreachable."),
             format!("Depuis {minutes} min sur {network} : le DNS chiffré reste injoignable."),
         )
+    }
+
+    pub fn fallback_title(&self) -> String {
+        self.pick("Fallback server in use".into(), "Secours utilisé".into())
+    }
+
+    pub fn fallback_body(&self, primary: &str, fallback: &str) -> String {
+        self.pick(format!("{primary} does not answer: using {fallback}."), format!("{primary} ne répond pas : {fallback} prend le relais."))
+    }
+
+    pub fn primary_back_title(&self) -> String {
+        self.pick("Main server back".into(), "Serveur principal rétabli".into())
+    }
+
+    pub fn primary_back_body(&self, primary: &str) -> String {
+        self.pick(format!("{primary} answers again."), format!("{primary} répond de nouveau."))
+    }
+
+    pub fn reloaded_title(&self) -> String {
+        self.pick("Configuration reloaded".into(), "Configuration rechargée".into())
+    }
+
+    pub fn reloaded_body(&self, servers: &str) -> String {
+        self.pick(format!("Servers, in order: {servers}."), format!("Serveurs, dans l'ordre : {servers}."))
+    }
+
+    pub fn invalid_config_title(&self) -> String {
+        self.pick("Configuration ignored".into(), "Configuration ignorée".into())
+    }
+
+    pub fn invalid_config_body(&self, error: &str) -> String {
+        self.pick(format!("The previous one stays in use: {error}"), format!("L'ancienne reste en service : {error}"))
     }
 
     pub fn stopped_title(&self) -> String {
