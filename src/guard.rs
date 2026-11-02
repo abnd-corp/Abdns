@@ -20,6 +20,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::json;
 
 use crate::config::Config;
+use crate::control::Signals;
 use crate::doh::Resolver;
 use crate::i18n::Text;
 use crate::platform::{self, Network};
@@ -150,6 +151,7 @@ pub struct Guard {
     config: Arc<Config>,
     config_path: PathBuf,
     config_stamp: Option<SystemTime>,
+    signals: Arc<Signals>,
     system: bool,
     shared: Arc<Shared>,
     text: Text,
@@ -176,10 +178,11 @@ fn stamp(path: &PathBuf) -> Option<SystemTime> {
 }
 
 impl Guard {
-    pub fn new(config: Arc<Config>, config_path: PathBuf, system: bool, shared: Arc<Shared>) -> Self {
+    pub fn new(config: Arc<Config>, config_path: PathBuf, system: bool, shared: Arc<Shared>, signals: Arc<Signals>) -> Self {
         let text = Text(config.language);
         Self {
             config_stamp: stamp(&config_path),
+            signals,
             config,
             config_path,
             system,
@@ -433,6 +436,14 @@ impl Guard {
     }
 
     fn tick(&mut self, now: u64) {
+        // `abdns reload` : relecture même si la date du fichier n'a pas changé.
+        if self.signals.reload.swap(false, Ordering::SeqCst) {
+            self.config_stamp = None;
+            self.next_network = now;
+        }
+        if self.signals.check.swap(false, Ordering::SeqCst) {
+            self.next_check = now;
+        }
         if now >= self.next_network {
             self.next_network = now + NETWORK_EVERY;
             self.update_network(now);

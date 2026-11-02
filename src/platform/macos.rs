@@ -10,7 +10,6 @@ use super::Network;
 use crate::config::Config;
 use crate::logbook;
 
-pub const CONFIG_PATH: &str = "/etc/abdns/config.toml";
 const LABEL: &str = "com.abnd.abdns";
 const PLIST: &str = "/Library/LaunchDaemons/com.abnd.abdns.plist";
 const NEWSYSLOG: &str = "/etc/newsyslog.d/abdns.conf";
@@ -49,6 +48,11 @@ fn dhcp_dns(packet: &str) -> Vec<IpAddr> {
 fn dhcp_domain(packet: &str) -> Option<String> {
     let domain = dhcp_option(packet, "domain_name")?.trim_end_matches('.').to_ascii_lowercase();
     (!domain.is_empty() && domain.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')).then_some(domain)
+}
+
+/// Groupe des administrateurs du Mac (`admin`), qui pilotent abdnsd sans sudo.
+pub fn admin_gid() -> Option<u32> {
+    Some(80)
 }
 
 pub fn network() -> Option<Network> {
@@ -132,6 +136,17 @@ pub fn notify(title: &str, body: &str) {
     );
 }
 
+/// `abdns logs` : le journal écrit par launchd (installation manuelle, Homebrew ou Nix).
+pub fn logs(follow: bool, lines: u32) -> Command {
+    let mut command = Command::new("/usr/bin/tail");
+    command.arg("-n").arg(lines.to_string());
+    if follow {
+        command.arg("-F");
+    }
+    command.arg(format!("{LOG_DIR}/abdns.log"));
+    command
+}
+
 pub fn open(url: &str) {
     as_console_user("/usr/bin/open", &[url]);
 }
@@ -141,7 +156,7 @@ fn xml_escape(text: &str) -> String {
 }
 
 fn plist(program: &Path, config: &Path) -> String {
-    let arguments = [program.to_string_lossy().into_owned(), "--config".into(), config.to_string_lossy().into_owned(), "service".into()]
+    let arguments = [program.to_string_lossy().into_owned(), "--config".into(), config.to_string_lossy().into_owned()]
         .iter()
         .map(|a| format!("\t\t<string>{}</string>\n", xml_escape(a)))
         .collect::<String>();
@@ -157,9 +172,10 @@ fn launchctl(args: &[&str]) -> bool {
     Command::new("/bin/launchctl").args(args).stdin(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
 }
 
-/// Service launchd sans Nix : le programme tel qu'il est installé, la configuration donnée.
+/// Service launchd sans gestionnaire de paquets : abdnsd installé à côté d'abdns.
 pub fn install(config: &Path) -> Result<()> {
-    let program = std::env::current_exe()?.canonicalize()?;
+    let program = std::env::current_exe()?.canonicalize()?.with_file_name("abdnsd");
+    ensure!(program.exists(), "{} not found next to abdns", program.display());
     let config = config.canonicalize().with_context(|| format!("{} not found", config.display()))?;
     std::fs::create_dir_all(LOG_DIR)?;
     std::fs::write(PLIST, plist(&program, &config)).with_context(|| format!("cannot write {PLIST} (run with sudo)"))?;
@@ -214,8 +230,10 @@ mod tests {
 
     #[test]
     fn launchd_plist() {
-        let p = plist(Path::new("/usr/local/bin/abdns"), Path::new("/etc/abdns/config.toml"));
+        let p = plist(Path::new("/usr/local/bin/abdnsd"), Path::new("/etc/abdns/config.toml"));
         assert!(p.contains("<string>com.abnd.abdns</string>"));
-        assert!(p.contains("<string>/usr/local/bin/abdns</string>\n\t\t<string>--config</string>\n\t\t<string>/etc/abdns/config.toml</string>\n\t\t<string>service</string>"));
+        assert!(p.contains(
+            "<string>/usr/local/bin/abdnsd</string>\n\t\t<string>--config</string>\n\t\t<string>/etc/abdns/config.toml</string>\n\t</array>"
+        ));
     }
 }

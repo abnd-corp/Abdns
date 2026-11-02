@@ -1,0 +1,47 @@
+# Version publiée à chaque étiquette vX.Y.Z : binaire macOS universel (Apple Silicon et Intel),
+# pages de manuel, autocomplétion, exemple de configuration, sommes SHA-256.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  macos:
+    name: macOS universal
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - name: Build both architectures
+        run: |
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+      - name: Package
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          dir="abdns-${TAG#v}-macos-universal"
+          mkdir -p "$dir/man" "$dir/completions"
+          for bin in abdns abdnsd; do
+            lipo -create -output "$dir/$bin" "target/aarch64-apple-darwin/release/$bin" "target/x86_64-apple-darwin/release/$bin"
+          done
+          cp man/abdns.1 man/abdnsd.8 "$dir/man/"
+          cp completions/* "$dir/completions/"
+          cp config.example.toml README.md README.fr.md "$dir/"
+          [ -f LICENSE ] && cp LICENSE "$dir/"
+          tar -czf "$dir.tar.gz" "$dir"
+          shasum -a 256 "$dir.tar.gz" > SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" --title "abdns ${TAG#v}" --generate-notes abdns-*.tar.gz SHA256SUMS

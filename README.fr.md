@@ -6,7 +6,7 @@
 
 **abdns est un client DNS-over-HTTPS (DoH) local pour macOS. Il envoie chaque requête DNS d'abord à votre propre résolveur, puis à des secours chiffrés dans l'ordre que vous choisissez, et n'utilise le DNS du réseau qu'en dernier recours, par exemple pour se connecter au portail captif du Wi-Fi d'un train, d'un hôtel ou d'un aéroport. Chaque domaine envoyé en clair vous est signalé.**
 
-C'est un seul programme Rust qui tourne comme un petit service système, avec son propre client DoH (rustls, HTTP/2, magasin de certificats du système). Linux et Windows sont prévus.
+Il est écrit en Rust : un petit service (`abdnsd`) et un outil en ligne de commande (`abdns`), avec son propre client DoH (rustls, HTTP/2, magasin de certificats du système). Linux et Windows sont prévus.
 
 ## Pourquoi
 
@@ -63,21 +63,37 @@ En plus, jamais plus de 6 notifications en 10 minutes ; le reste va seulement au
 
 ## Installation (macOS)
 
-### Sans Nix
+abdns est fait de deux programmes, comme `sshd` et `ssh` d'OpenSSH : **`abdnsd`**, le service, seule partie qui tourne en administrateur ; et **`abdns`**, l'outil en ligne de commande, qui le pilote par une socket locale protégée (un administrateur change le mode ou relit la configuration sans `sudo`).
 
-1. Écrire la configuration, à partir de [`config.example.toml`](config.example.toml) :
-   ```sh
-   sudo mkdir -p /etc/abdns
-   sudo cp config.example.toml /etc/abdns/config.toml
-   sudo nano /etc/abdns/config.toml     # vos serveurs, dans l'ordre
-   ```
-2. Compiler et installer le service (Rust nécessaire) :
-   ```sh
-   make release
-   sudo make install
-   ```
+### Homebrew
 
-`sudo abdns uninstall` arrête et retire le service, et remet le DNS du réseau.
+Disponible avec la première version publiée.
+
+```sh
+brew install abnd-corp/tap/abdns
+nano "$(brew --prefix)/etc/abdns/config.toml"   # vos serveurs, dans l'ordre
+sudo brew services start abdns
+```
+
+### Archive d'une version
+
+Disponible avec la première version publiée.
+
+Chaque version publie une archive macOS universelle (Apple Silicon et Intel) avec sa somme SHA-256 sur la [page des versions](https://github.com/abnd-corp/Abdns/releases). La télécharger avec `curl` (un téléchargement par le navigateur serait mis en quarantaine, les binaires n'étant pas notariés), puis :
+
+```sh
+tar -xzf abdns-*-macos-universal.tar.gz && cd abdns-*-macos-universal
+sudo install -m 755 abdns abdnsd /usr/local/bin/
+sudo mkdir -p /etc/abdns && sudo cp config.example.toml /etc/abdns/config.toml
+sudo abdns install        # service launchd, démarré tout de suite et au démarrage
+```
+
+### Depuis les sources
+
+```sh
+make release
+sudo make install         # programmes, pages de manuel, service launchd
+```
 
 ### Avec nix-darwin
 
@@ -101,6 +117,8 @@ abdns.darwinModules.default
   };
 }
 ```
+
+`sudo abdns uninstall` arrête et retire le service, et remet le DNS du réseau (Homebrew : `sudo brew services stop abdns`).
 
 ### Chemin DoH secret (facultatif)
 
@@ -134,13 +152,18 @@ Le tableau complet des clés est dans le [README anglais](README.md#configuratio
 ## Utilisation
 
 ```sh
-abdns status                      # mode, serveurs et celui qui répond, réseau, domaines envoyés en clair
-sudo abdns mode local             # imposer le DNS du réseau (portail récalcitrant)
-sudo abdns mode encrypted         # interdire le DNS du réseau
-sudo abdns mode auto              # revenir au choix automatique
-tail -f /var/log/abdns/abdns.log  # journal du service
-cat /var/log/abdns/clear.log      # chaque domaine envoyé en clair
+abdns status                  # mode, serveurs (● celui qui répond), réseau, domaines envoyés en clair
+abdns test                    # interroge chaque serveur maintenant, avec son temps de réponse
+abdns check                   # vérifie le fichier de configuration, comme sshd -t
+abdns mode local              # impose le DNS du réseau (portail récalcitrant)
+abdns mode encrypted          # interdit le DNS du réseau
+abdns mode auto               # revient au choix automatique
+abdns reload                  # relit la configuration tout de suite
+abdns logs -f                 # suit le journal du service
+abdns --json status           # sortie pour les scripts
 ```
+
+Pages de manuel : `man abdns`, `man abdnsd`. Autocomplétion : `abdns completions zsh|bash|fish` (installée d'office par Homebrew et Nix). Tous les domaines envoyés en clair sont dans `/var/log/abdns/clear.log`.
 
 Les notifications passent par `osascript` : autoriser **Éditeur de script** dans Réglages › Notifications.
 
@@ -168,7 +191,7 @@ Oui. Un VPN comme Proton VPN ou WireGuard impose son propre DNS tant qu'il est c
 Le DNS du poste est remis sur celui du réseau, et launchd relance abdns en moins de 30 secondes.
 
 **Faut-il Nix ?**
-Non. Nix est une façon d'installer parmi d'autres ; `make install` fonctionne sans.
+Non. Homebrew, l'archive d'une version et `make install` fonctionnent sans.
 
 ## Limites
 

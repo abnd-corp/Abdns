@@ -42,7 +42,7 @@ in
       ${logDir}/abdns.log 644 3 1024 * Z
     '';
     launchd.daemons.abdns.serviceConfig = {
-      ProgramArguments = [ (lib.getExe package) "--config" cfg.configFile "service" ];
+      ProgramArguments = [ "${package}/bin/abdnsd" "--config" cfg.configFile ];
       RunAtLoad = true;
       KeepAlive = true;
       ThrottleInterval = 30;

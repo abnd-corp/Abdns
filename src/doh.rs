@@ -79,6 +79,9 @@ fn with_id(mut reply: Vec<u8>, query: &[u8]) -> Vec<u8> {
 
 impl Resolver {
     pub fn new(config: &Config) -> Result<Self> {
+        // ring : se compile partout (Windows et musl compris) sans outil externe. Déjà installé
+        // lors d'une relecture de la configuration : rien à faire.
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let upstreams = config
             .server
             .iter()
@@ -235,11 +238,36 @@ impl Resolver {
                 Err(error) => self.failed(index, error),
             }
         }
-        // Le dernier utilisé reste celui qu'on préfère parmi ceux qui répondent.
+        // Celui qu'on préfère parmi ceux qui répondent.
         if let Some(index) = first {
             self.succeeded(index);
         }
         first
+    }
+
+    /// `abdns test` : chaque serveur interrogé en parallèle, avec son temps de réponse ;
+    /// l'état des serveurs n'est pas modifié.
+    pub fn test(&self, name: &str) -> Vec<(String, std::result::Result<Duration, String>)> {
+        let query = dns::query(0, name, 1);
+        std::thread::scope(|scope| {
+            let runs: Vec<_> = (0..self.upstreams.len())
+                .map(|index| {
+                    let query = &query;
+                    scope.spawn(move || {
+                        let started = std::time::Instant::now();
+                        let reply = self.exchange(index, query).map_err(|e| format!("{e:#}"))?;
+                        match dns::rcode(&reply) {
+                            Some(0 | dns::NXDOMAIN) => Ok(started.elapsed()),
+                            rcode => Err(format!("rcode {rcode:?}")),
+                        }
+                    })
+                })
+                .collect();
+            runs.into_iter()
+                .enumerate()
+                .map(|(index, run)| (self.name(index).to_owned(), run.join().unwrap_or_else(|_| Err("panicked".to_owned()))))
+                .collect()
+        })
     }
 }
 

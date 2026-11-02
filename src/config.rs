@@ -44,6 +44,14 @@ pub struct Server {
     pub token_file: Option<PathBuf>,
 }
 
+/// Emplacements habituels, dans l'ordre : système, Homebrew (Apple Silicon puis Intel).
+const CONFIG_PATHS: &[&str] = &["/etc/abdns/config.toml", "/opt/homebrew/etc/abdns/config.toml", "/usr/local/etc/abdns/config.toml"];
+
+/// Fichier de configuration par défaut : le premier qui existe, sinon `/etc/abdns/config.toml`.
+pub fn default_path() -> PathBuf {
+    CONFIG_PATHS.iter().map(PathBuf::from).find(|p| p.exists()).unwrap_or_else(|| PathBuf::from(CONFIG_PATHS[0]))
+}
+
 fn yes() -> bool {
     true
 }

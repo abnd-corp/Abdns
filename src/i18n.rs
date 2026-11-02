@@ -135,10 +135,7 @@ impl Text {
     }
 
     pub fn mode_set(&self, mode: &str) -> String {
-        self.pick(
-            format!("mode {mode}: applied at the next check (10 to 30 s)"),
-            format!("mode {mode} : appliqué au prochain contrôle (10 à 30 s)"),
-        )
+        self.pick(format!("mode {mode}: applied within a few seconds"), format!("mode {mode} : appliqué dans quelques secondes"))
     }
 
     pub fn token_saved(&self, path: &str) -> String {

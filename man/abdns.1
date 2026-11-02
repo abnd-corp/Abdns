@@ -1,0 +1,76 @@
+.TH ABDNS 1 "November 2026" "abdns 0.2.0" "User Commands"
+.SH NAME
+abdns \- control abdnsd, the encrypted DNS client of this computer
+.SH SYNOPSIS
+.B abdns
+.RB [ \-\-config
+.IR file ]
+.RB [ \-\-json ]
+.I command
+.RI [ arguments ]
+.SH DESCRIPTION
+.B abdns
+talks to
+.BR abdnsd (8)
+over its local control socket. abdnsd sends every DNS query of the computer to your own
+DNS-over-HTTPS resolver first, then to encrypted fallbacks in the configured order, and uses the
+network's DNS only as a last resort, for example to sign in to a captive portal.
+.SH COMMANDS
+.TP
+.B status
+Mode (encrypted or network DNS), servers and which one answers, network, names sent in clear.
+Readable by every user.
+.TP
+.B test
+Query every server now and print its response time. Exits with status 1 if one fails.
+.TP
+.BR mode " " auto | encrypted | local
+Force a mode. \fBencrypted\fR forbids the network DNS; \fBlocal\fR forces it (stubborn captive
+portal); \fBauto\fR lets abdnsd decide. Administrators only.
+.TP
+.B reload
+Read the configuration file again now. abdnsd also notices changes by itself within 5 seconds.
+Administrators only.
+.TP
+.B check
+Validate the configuration file and list the servers in order, like \fBsshd \-t\fR.
+.TP
+.BR logs " [" \-f "] [" \-n
+.IR lines ]
+Show the service log; \fB\-f\fR follows it.
+.TP
+.BR token " [" \fIserver\fR ]
+Store the secret path segment of a server's DoH URL, read from standard input, in that server's
+\fBtoken_file\fR (mode 0600). Accepts the token alone or the full URL. As root.
+.TP
+.BR install " / " uninstall
+Install and start, or stop and remove, abdnsd as a launchd service when no package manager does
+it (macOS, as root). \fBuninstall\fR also restores the network DNS.
+.TP
+.BR completions " " bash | zsh | fish
+Print a shell completion script.
+.SH OPTIONS
+.TP
+.BI \-\-config " file"
+Configuration file. Default: the first that exists of
+.IR /etc/abdns/config.toml ,
+.IR /opt/homebrew/etc/abdns/config.toml ,
+.IR /usr/local/etc/abdns/config.toml .
+.TP
+.B \-\-json
+Machine-readable output for \fBstatus\fR and \fBtest\fR.
+.SH FILES
+.TP
+.I /etc/abdns/config.toml
+Configuration, see
+.BR abdnsd (8).
+.TP
+.I /var/run/abdns/status.json
+Current state, readable by every user.
+.TP
+.I /var/log/abdns/clear.log
+Every name sent in clear.
+.SH EXIT STATUS
+0 on success, 1 on error, 2 on a usage error.
+.SH SEE ALSO
+.BR abdnsd (8)

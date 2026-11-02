@@ -1,0 +1,35 @@
+#compdef abdns
+# zsh completion for abdns
+
+_abdns() {
+    local -a commands
+    commands=(
+        'status:mode, servers, network, names sent in clear'
+        'test:query every server now and show its response time'
+        'mode:force a mode (auto, encrypted, local)'
+        'reload:read the configuration again now'
+        'check:validate the configuration file'
+        'logs:show the service log'
+        'token:store a server token read from standard input'
+        'install:install and start abdnsd without a package manager'
+        'uninstall:stop and remove abdnsd, restore the network DNS'
+        'completions:print a shell completion script'
+        'version:print the version'
+    )
+    _arguments -C \
+        '--config[configuration file]:file:_files' \
+        '--json[machine-readable output]' \
+        '1:command:->command' \
+        '*::argument:->argument'
+    case $state in
+        command) _describe 'command' commands ;;
+        argument)
+            case $words[1] in
+                mode) _values 'mode' auto encrypted local ;;
+                completions) _values 'shell' bash zsh fish ;;
+                logs) _arguments '-f[follow]' '-n[lines]:lines:' ;;
+            esac ;;
+    esac
+}
+
+_abdns "$@"

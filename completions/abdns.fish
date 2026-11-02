@@ -1,0 +1,20 @@
+# fish completion for abdns
+set -l commands status test mode reload check logs token install uninstall completions version help
+complete -c abdns -f
+complete -c abdns -l config -r -F -d 'configuration file'
+complete -c abdns -l json -d 'machine-readable output'
+complete -c abdns -n "not __fish_seen_subcommand_from $commands" -a status -d 'mode, servers, network, names sent in clear'
+complete -c abdns -n "not __fish_seen_subcommand_from $commands" -a test -d 'query every server now'
+complete -c abdns -n "not __fish_seen_subcommand_from $commands" -a mode -d 'force a mode'
+complete -c abdns -n "not __fish_seen_subcommand_from $commands" -a reload -d 'read the configuration again'
+complete -c abdns -n "not __fish_seen_subcommand_from $commands" -a check -d 'validate the configuration file'
+complete -c abdns -n "not __fish_seen_subcommand_from $commands" -a logs -d 'show the service log'
+complete -c abdns -n "not __fish_seen_subcommand_from $commands" -a token -d 'store a server token'
+complete -c abdns -n "not __fish_seen_subcommand_from $commands" -a install -d 'install abdnsd without a package manager'
+complete -c abdns -n "not __fish_seen_subcommand_from $commands" -a uninstall -d 'remove abdnsd'
+complete -c abdns -n "not __fish_seen_subcommand_from $commands" -a completions -d 'print a shell completion script'
+complete -c abdns -n "not __fish_seen_subcommand_from $commands" -a version -d 'print the version'
+complete -c abdns -n "__fish_seen_subcommand_from mode" -a 'auto encrypted local'
+complete -c abdns -n "__fish_seen_subcommand_from completions" -a 'bash zsh fish'
+complete -c abdns -n "__fish_seen_subcommand_from logs" -s f -d 'follow'
+complete -c abdns -n "__fish_seen_subcommand_from logs" -s n -r -d 'lines'

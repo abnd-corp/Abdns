@@ -1,0 +1,82 @@
+.TH ABDNSD 8 "November 2026" "abdns 0.2.0" "System Manager's Manual"
+.SH NAME
+abdnsd \- encrypted DNS client of this computer, with captive portal support
+.SH SYNOPSIS
+.B abdnsd
+.RB [ \-\-config
+.IR file ]
+.RB [ \-\-no\-system ]
+.SH DESCRIPTION
+.B abdnsd
+listens on 127.0.0.1:53 and [::1]:53 and points the system DNS to itself. Every query goes over
+DNS-over-HTTPS (RFC 8484) to the configured servers, tried in order: a failing server is set
+aside for 30 seconds, up to 5 minutes, and checked again every 30 seconds. Answers are cached
+for their lifetime; when no server answers, the last known answer is served for up to one day
+(RFC 8767).
+.PP
+Names of the local network (\fI.local\fR, \fI.lan\fR, \fI.home.arpa\fR, the DHCP domain,
+single-label names, reverse lookups of private addresses) always go to the network DNS and are
+never reported.
+.PP
+When every server fails twice in a row while the network DNS answers \(em a captive portal, or a
+network blocking encrypted DNS \(em and \fBlocal_fallback\fR is true, abdnsd uses the network
+DNS, opens the portal sign-in page if there is one, reports the names sent in clear, and switches
+back as soon as an encrypted server answers. A DNSSEC failure never triggers this switch.
+.PP
+The configuration file is read again whenever it changes; an invalid file is reported and the
+previous configuration stays in use. When abdnsd stops or crashes, the system DNS is set back to
+the network's.
+.SH OPTIONS
+.TP
+.BI \-\-config " file"
+Configuration file (default: see
+.BR abdns (1)).
+.TP
+.B \-\-no\-system
+Do not change the system DNS (testing, with \fBlisten\fR on a port above 1024).
+.SH CONFIGURATION
+TOML. Only \fB[[server]]\fR is required.
+.TP
+.B language
+\fB"en"\fR or \fB"fr"\fR, for notifications.
+.TP
+.B local_fallback
+Use the network DNS when no server answers (default \fBtrue\fR).
+.TP
+.B listen
+Addresses to listen on (default 127.0.0.1:53 and [::1]:53; restart to change).
+.TP
+.B [[server]]
+\fBname\fR; \fBurl\fR, the DoH URL; \fBip\fR, required when the URL uses a host name, so that
+the server is reached without any plaintext lookup; \fBtoken_file\fR, a root-only file whose
+content is appended to \fBurl\fR (which then ends with \fB/\fR).
+.TP
+.B network_services
+macOS network services whose DNS points to abdnsd (default \fB["Wi-Fi"]\fR).
+.TP
+.BR state_dir ", " clear_log
+State directory (default \fI/var/run/abdns\fR) and log of names sent in clear (default
+\fI/var/log/abdns/clear.log\fR).
+.SH EXAMPLE
+.nf
+language = "en"
+local_fallback = true
+
+[[server]]
+name = "Google"
+url = "https://8.8.8.8/dns-query"
+
+[[server]]
+name = "Cloudflare"
+url = "https://1.1.1.1/dns-query"
+.fi
+.SH FILES
+.TP
+.I /var/run/abdns/control.sock
+Control socket, group of the administrators, used by
+.BR abdns (1).
+.TP
+.I /var/log/abdns/abdns.log
+Service log on macOS (journald on Linux).
+.SH SEE ALSO
+.BR abdns (1)
