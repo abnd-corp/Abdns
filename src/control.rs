@@ -77,7 +77,8 @@ fn test(shared: &Shared) -> Value {
     )
 }
 
-fn answer(request: Request, config: &Config, shared: &Shared, signals: &Signals) -> Result<Value> {
+/// Réponse à une requête, quel que soit le canal (socket Unix, canal nommé sous Windows).
+pub fn answer(request: Request, config: &Config, shared: &Shared, signals: &Signals) -> Result<Value> {
     match request {
         Request::Status => status(config),
         Request::Mode { mode } => {
