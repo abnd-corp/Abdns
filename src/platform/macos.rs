@@ -1,5 +1,7 @@
-//! macOS : outils du système uniquement (route, ipconfig, networksetup, osascript, launchctl).
+//! macOS : outils du système uniquement (route, ipconfig, networksetup, osascript, launchctl), et
+//! notify(3) de libSystem pour être prévenu des changements de réseau.
 
+use std::ffi::{CStr, c_char, c_int};
 use std::net::IpAddr;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -48,6 +50,45 @@ fn dhcp_dns(packet: &str) -> Vec<IpAddr> {
 fn dhcp_domain(packet: &str) -> Option<String> {
     let domain = dhcp_option(packet, "domain_name")?.trim_end_matches('.').to_ascii_lowercase();
     (!domain.is_empty() && domain.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')).then_some(domain)
+}
+
+unsafe extern "C" {
+    fn notify_register_check(name: *const c_char, token: *mut c_int) -> u32;
+    fn notify_check(token: c_int, check: *mut c_int) -> u32;
+    fn notify_cancel(token: c_int) -> u32;
+}
+
+/// `kNotifySCNetworkChange` (notify_keys.h) : publié par configd à chaque changement de la
+/// configuration réseau (interface, route, DNS).
+const NETWORK_CHANGE: &CStr = c"com.apple.system.config.network_change";
+
+/// Abonnement aux changements de réseau. `changed` lit une mémoire partagée : rien n'est lancé.
+pub struct Watch(c_int);
+
+impl Watch {
+    pub fn new() -> Option<Self> {
+        Self::named(NETWORK_CHANGE)
+    }
+
+    fn named(name: &CStr) -> Option<Self> {
+        let mut token = 0;
+        // SAFETY : nom terminé par un zéro, jeton écrit par la fonction.
+        (unsafe { notify_register_check(name.as_ptr(), &raw mut token) } == 0).then_some(Self(token))
+    }
+
+    /// Vrai si le réseau a changé depuis le dernier appel (toujours vrai au premier).
+    pub fn changed(&mut self) -> bool {
+        let mut check = 0;
+        // SAFETY : jeton rendu par notify_register_check, encore valide.
+        unsafe { notify_check(self.0, &raw mut check) == 0 && check != 0 }
+    }
+}
+
+impl Drop for Watch {
+    fn drop(&mut self) {
+        // SAFETY : jeton rendu par notify_register_check, annulé une seule fois.
+        unsafe { notify_cancel(self.0) };
+    }
 }
 
 /// Groupe des administrateurs du Mac (`admin`), qui pilotent abdnsd sans sudo.
@@ -207,6 +248,28 @@ pub fn uninstall(config: Option<&Config>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    unsafe extern "C" {
+        fn notify_post(name: *const c_char) -> u32;
+    }
+
+    #[test]
+    fn watch_sees_a_notification() {
+        let name = c"com.abnd.abdns.test";
+        let mut watch = Watch::named(name).expect("notify registration");
+        watch.changed();
+        assert!(!watch.changed(), "nothing posted yet");
+        // SAFETY : nom terminé par un zéro ; nom propre à ce test, sans effet sur le système.
+        assert_eq!(unsafe { notify_post(name.as_ptr()) }, 0);
+        // Remise asynchrone par notifyd : quelques millisecondes.
+        let seen = (0..200).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            watch.changed()
+        });
+        assert!(seen, "the notification arrives");
+        assert!(!watch.changed());
+        assert!(Watch::new().is_some(), "network change notifications available");
+    }
 
     #[test]
     fn default_route() {

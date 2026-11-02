@@ -1,8 +1,10 @@
 //! Linux : systemd (`systemctl`, `loginctl`), systemd-resolved (`resolvectl`) pour régler le DNS,
-//! NetworkManager (`nmcli`) pour lire le bail DHCP quand il est là, `ip` pour la route.
+//! NetworkManager (`nmcli`) pour lire le bail DHCP quand il est là, `ip` pour la route, et une
+//! socket netlink (noyau) pour être prévenu des changements de réseau.
 
 use std::collections::BTreeMap;
 use std::net::IpAddr;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
@@ -335,7 +337,51 @@ fn graphical_session(sessions: &str, show: impl Fn(&str) -> Option<String>) -> O
 }
 
 fn is_root() -> bool {
-    output("id", &["-u"]).is_some_and(|uid| uid.trim() == "0")
+    // SAFETY : sans argument ni effet.
+    unsafe { libc::geteuid() == 0 }
+}
+
+/// Abonnement netlink aux changements de liens, d'adresses et de routes. Présent dans tout
+/// noyau Linux, conteneurs compris : aucun paquet à installer. Ne voit pas un changement de DNS
+/// seul (NetworkManager, resolved) : la garde garde un contrôle lent pour ce cas.
+pub struct Watch(OwnedFd);
+
+impl Watch {
+    pub fn new() -> Option<Self> {
+        // SAFETY : appels système sur un descripteur que nous possédons, adresse initialisée.
+        unsafe {
+            let fd = libc::socket(libc::AF_NETLINK, libc::SOCK_RAW | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC, libc::NETLINK_ROUTE);
+            if fd < 0 {
+                return None;
+            }
+            let fd = OwnedFd::from_raw_fd(fd);
+            let mut address: libc::sockaddr_nl = std::mem::zeroed();
+            address.nl_family = libc::AF_NETLINK as libc::sa_family_t;
+            address.nl_groups = (libc::RTMGRP_LINK
+                | libc::RTMGRP_IPV4_IFADDR
+                | libc::RTMGRP_IPV6_IFADDR
+                | libc::RTMGRP_IPV4_ROUTE
+                | libc::RTMGRP_IPV6_ROUTE) as u32;
+            let size = std::mem::size_of::<libc::sockaddr_nl>() as libc::socklen_t;
+            (libc::bind(fd.as_raw_fd(), (&raw const address).cast(), size) == 0).then_some(Self(fd))
+        }
+    }
+
+    /// Vrai si le noyau a signalé un changement depuis le dernier appel.
+    pub fn changed(&mut self) -> bool {
+        let mut any = false;
+        let mut buf = [0u8; 8192];
+        loop {
+            // SAFETY : tampon valide de la taille donnée, descripteur non bloquant.
+            let n = unsafe { libc::recv(self.0.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len(), 0) };
+            match n {
+                1.. => any = true,
+                // Messages perdus (tampon plein) : le réseau a changé quand même.
+                _ if n < 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ENOBUFS) => any = true,
+                _ => return any,
+            }
+        }
+    }
 }
 
 /// Commande qui lance `program` dans la session de l'utilisateur (le service tourne en root) :
@@ -442,6 +488,14 @@ pub fn uninstall(config: Option<&Config>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn netlink_watch_never_blocks() {
+        let mut watch = Watch::new().expect("netlink socket");
+        let started = std::time::Instant::now();
+        watch.changed();
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    }
 
     #[test]
     fn default_routes_by_metric() {
