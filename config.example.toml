@@ -17,6 +17,7 @@ state_dir = "/var/run/abdns"
 clear_log = "/var/log/abdns/clear.log"
 
 # macOS network services whose DNS points to abdns (networksetup -listallnetworkservices).
+# Ignored on Linux: abdns takes over every physical interface the computer goes out by.
 network_services = ["Wi-Fi"]
 
 # DNS-over-HTTPS servers, tried in this order. Replace them with your own resolver and

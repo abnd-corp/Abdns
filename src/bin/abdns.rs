@@ -21,8 +21,8 @@ const USAGE: &str = "Usage: abdns [--config FILE] [--json] <command>
   check                        validate the configuration file, like sshd -t
   logs [-f] [-n LINES]         show the service log (-f: follow)
   token [SERVER]               store a server token read from standard input (as root)
-  install                      install and start abdnsd without a package manager (as root, macOS)
-  uninstall                    stop and remove abdnsd, restore the network DNS (as root, macOS)
+  install                      install and start abdnsd without a package manager (as root, macOS and Linux)
+  uninstall                    stop and remove abdnsd, restore the network DNS (as root, macOS and Linux)
   completions bash|zsh|fish    print a shell completion script
   version                      print the version
 See abdns(1) and abdnsd(8).";

@@ -392,6 +392,16 @@ impl Guard {
         self.network = current;
     }
 
+    /// Le réglage du DNS du poste peut être défait par un autre service : il est refait.
+    fn keep_system_dns(&self) {
+        if self.system
+            && !self.network_dns().is_empty()
+            && let Err(error) = platform::keep_system_dns(&self.config)
+        {
+            logbook::log(&format!("{error:#}"));
+        }
+    }
+
     /// Fichier de configuration modifié : relu ; s'il est valide, appliqué sans redémarrer.
     fn reload(&mut self, now: u64) {
         let current = stamp(&self.config_path);
@@ -448,6 +458,7 @@ impl Guard {
             self.next_network = now + NETWORK_EVERY;
             self.update_network(now);
             self.reload(now);
+            self.keep_system_dns();
         }
         if now >= self.next_check {
             self.check(now);

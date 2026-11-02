@@ -1,6 +1,6 @@
 //! Ce qui dépend du système : réseau actif et son DNS, réglage du DNS du poste,
-//! notifications, ouverture d'une page, installation du service. macOS d'abord ; Linux et
-//! Windows suivront derrière les mêmes fonctions.
+//! notifications, ouverture d'une page, installation du service. macOS et Linux ; Windows
+//! suivra derrière les mêmes fonctions.
 
 use std::net::IpAddr;
 
@@ -9,9 +9,14 @@ mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::*;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::*;
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod other;
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub use other::*;
 
 /// Réseau par lequel sort le poste.
