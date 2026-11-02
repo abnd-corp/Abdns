@@ -1,10 +1,10 @@
 { lib, rustPlatform }:
 rustPlatform.buildRustPackage {
   pname = "abdns";
-  version = "0.1.0";
+  version = "0.2.0";
   src = lib.fileset.toSource {
     root = ../.;
-    fileset = lib.fileset.unions [ ../Cargo.toml ../Cargo.lock ../src ];
+    fileset = lib.fileset.unions [ ../Cargo.toml ../Cargo.lock ../src ../config.example.toml ];
   };
   cargoLock.lockFile = ../Cargo.lock;
   meta = {
