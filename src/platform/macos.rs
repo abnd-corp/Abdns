@@ -79,6 +79,11 @@ fn hardware_port<'a>(ports: &'a str, interface: &str) -> Option<&'a str> {
     None
 }
 
+/// Le réglage est attaché au service réseau (« Wi-Fi »), pas au réseau rejoint : rien à refaire.
+pub fn keep_system_dns(_config: &Config) -> Result<()> {
+    Ok(())
+}
+
 /// `relay` : DNS des services réseau sur le relais ; sinon, DNS du réseau (réglage vidé).
 pub fn set_system_dns(config: &Config, relay: bool) -> Result<()> {
     let servers: Vec<String> = if relay {
