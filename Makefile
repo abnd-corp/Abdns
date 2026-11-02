@@ -1,5 +1,5 @@
 # Cibles communes de l'organisation (charte R21) : build, test, lint. Un projet peut en ajouter, pas en retirer.
-.PHONY: help build release test lint fmt check install uninstall clean bpmn test-bpmn
+.PHONY: help build release test lint fmt check bench install uninstall clean bpmn test-bpmn
 
 CARGO ?= cargo
 PREFIX ?= /usr/local
@@ -25,6 +25,9 @@ fmt: ## Formate le code
 	$(CARGO) fmt --all
 
 check: lint test ## Ce qui doit passer avant d'ouvrir une PR (R4)
+
+bench: release ## Mesure taille, mémoire, fils et processeur d'abdnsd (Internet requis, voir docs/tests.md)
+	python3 -I tests/bench.py target/release/abdnsd
 
 install: ## Installe abdns, abdnsd, les pages de manuel et le service (macOS et Linux, sudo, après `make release`)
 	@test -x target/release/abdnsd || { echo "run make release first (without sudo)"; exit 1; }

@@ -15,7 +15,7 @@ use reqwest::blocking::Client;
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
 
 use crate::config::{self, Config};
-use crate::{dns, logbook};
+use crate::{dns, lock, logbook};
 
 const MEDIA_TYPE: &str = "application/dns-message";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
@@ -103,7 +103,7 @@ impl Resolver {
     /// (nom, disponible) pour chaque serveur, dans l'ordre.
     pub fn snapshot(&self) -> Vec<(String, bool)> {
         let now = logbook::now();
-        let health = self.health.lock().map(|h| h.clone()).unwrap_or_default();
+        let health = lock(&self.health).clone();
         self.upstreams.iter().zip(health).map(|(u, h)| (u.name.clone(), h.down_until <= now)).collect()
     }
 
@@ -127,37 +127,36 @@ impl Resolver {
     }
 
     fn succeeded(&self, index: usize) {
-        if let Ok(mut health) = self.health.lock() {
-            if health[index].failures > 0 {
-                logbook::log(&format!("{} answers again", self.name(index)));
-            }
-            health[index] = Health::default();
+        let mut health = lock(&self.health);
+        if health[index].failures > 0 {
+            logbook::log(&format!("{} answers again", self.name(index)));
         }
+        health[index] = Health::default();
+        drop(health);
         self.last.store(index, Ordering::Relaxed);
     }
 
     fn failed(&self, index: usize, error: &anyhow::Error) {
-        if let Ok(mut health) = self.health.lock() {
-            let h = &mut health[index];
-            if h.failures == 0 {
-                logbook::log(&format!("{} unreachable: {error:#}", self.name(index)));
-            }
-            h.failures += 1;
-            let wait = DOWN_FIRST.saturating_mul(1 << (h.failures - 1).min(4)).min(DOWN_MAX);
-            h.down_until = logbook::now() + wait;
+        let mut health = lock(&self.health);
+        let h = &mut health[index];
+        if h.failures == 0 {
+            logbook::log(&format!("{} unreachable: {error:#}", self.name(index)));
         }
+        h.failures += 1;
+        let wait = DOWN_FIRST.saturating_mul(1 << (h.failures - 1).min(4)).min(DOWN_MAX);
+        h.down_until = logbook::now() + wait;
     }
 
     /// Serveurs disponibles dans l'ordre ; s'ils sont tous de côté, tous dans l'ordre.
     fn order(&self) -> Vec<usize> {
         let now = logbook::now();
-        let health = self.health.lock().map(|h| h.clone()).unwrap_or_default();
+        let health = lock(&self.health);
         let up: Vec<usize> = (0..self.upstreams.len()).filter(|&i| health.get(i).is_none_or(|h| h.down_until <= now)).collect();
         if up.is_empty() { (0..self.upstreams.len()).collect() } else { up }
     }
 
     fn cached(&self, key: &[u8], stale: bool) -> Option<Vec<u8>> {
-        let cache = self.cache.lock().ok()?;
+        let cache = lock(&self.cache);
         let entry = cache.get(key)?;
         let age = logbook::now().saturating_sub(entry.stored);
         let mut reply = entry.reply.clone();
@@ -174,7 +173,7 @@ impl Resolver {
 
     fn store(&self, key: Vec<u8>, reply: &[u8]) {
         let Some(ttl) = dns::cache_ttl(reply).filter(|&t| t > 0) else { return };
-        let Ok(mut cache) = self.cache.lock() else { return };
+        let mut cache = lock(&self.cache);
         if cache.len() >= CACHE_MAX {
             let now = logbook::now();
             cache.retain(|_, e| now.saturating_sub(e.stored) < u64::from(e.ttl) + STALE_FOR);
@@ -231,8 +230,8 @@ impl Resolver {
                 Ok(()) => {
                     if first.is_none() {
                         first = Some(index);
-                    } else if let Ok(mut health) = self.health.lock() {
-                        health[index] = Health::default();
+                    } else {
+                        lock(&self.health)[index] = Health::default();
                     }
                 }
                 Err(error) => self.failed(index, error),
@@ -289,6 +288,19 @@ mod tests {
         r.extend_from_slice(&ttl.to_be_bytes());
         r.extend_from_slice(&[0, 4, 93, 184, 216, 34]);
         r
+    }
+
+    #[test]
+    fn cache_survives_a_panic_while_locked() {
+        let r = resolver();
+        let key = dns::cache_key(&dns::query(1, "example.com", 1)).unwrap();
+        r.store(key.clone(), &answer(0, 300));
+        let poisoned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _held = lock(&r.cache);
+            panic!("request thread panics");
+        }));
+        assert!(poisoned.is_err() && r.cache.is_poisoned());
+        assert!(r.cached(&key, false).is_some(), "the cache still answers");
     }
 
     #[test]

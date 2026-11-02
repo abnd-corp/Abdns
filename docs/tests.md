@@ -19,6 +19,24 @@ cargo test relay::              # le relais
 
 Les tests d'intégration sont réservés aux systèmes Unix (socket de commande, `kill`) ; ils lancent les programmes avec `PATH` vidé : aucune commande système (réseau, notification) n'est appelée, le résultat ne dépend pas du poste. Le serveur DoH de test est un port fermé.
 
+## Banc de mesure
+
+`make bench` compile en release et lance `tests/bench.py` : abdnsd en `--no-system` sur le port 5399, avec deux serveurs DoH publics (Internet requis). Il mesure la taille du binaire, la mémoire et les fils au repos, puis le débit et le processeur sur des réponses en cache, sur 1 500 noms inédits et sur une rafale de 30 noms. Les chiffres dépendent du poste et du réseau : on compare avant et après un changement, sur la même machine.
+
+Référence (MacBook arm64, Wi-Fi) :
+
+| Mesure | 0.2.0 | Profil de taille (#36) |
+|---|---|---|
+| Binaire `abdnsd` | 4,27 Mio | 2,20 Mio |
+| Binaire `abdns` | 0,90 Mio | 0,58 Mio |
+| Mémoire au repos (RSS) | 11,6 Mio | 10,1 Mio |
+| Fils au repos | 9 | 9 |
+| Cache : processeur par réponse | 54 µs | 56 µs |
+| Noms inédits : processeur par requête | 0,54 ms | 0,42 ms |
+| Rafale de 30 noms inédits | 284 ms | 173 ms |
+
+Le débit et la rafale varient d'une mesure à l'autre avec le réseau ; seuls les écarts nets comptent.
+
 ## Ce qui n'est pas couvert
 
 - **Un serveur DoH qui répond.** Il demande un faux serveur TLS, donc une autorité de confiance pour le client (qui utilise le magasin de certificats du système). À prévoir : une option de test pour ajouter un certificat racine, décidée dans une issue.
