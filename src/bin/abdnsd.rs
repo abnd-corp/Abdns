@@ -2,11 +2,11 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
 use abdns::config::{self, Config};
 use abdns::i18n::Text;
-use abdns::{control, doh, guard, logbook, platform, relay};
+use abdns::{control, doh, guard, logbook, platform, relay, rt};
 use anyhow::{Context, Result, ensure};
 
 const USAGE: &str = "Usage: abdnsd [--config FILE] [--no-system]
@@ -33,11 +33,14 @@ fn run(config_path: &Path, system: bool) -> Result<()> {
     }
     let config = Arc::new(config);
     if system {
-        // Quoi qu'il arrive au programme, le poste garde un DNS.
+        // Si la garde plante, le service s'arrête : le poste repasse sur le DNS du réseau. Une
+        // panique ailleurs (une requête, le canal de commande) ne coûte que ce qu'elle traitait.
         let config = config.clone();
         let default = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
-            platform::set_system_dns(&config, false).ok();
+            if std::thread::current().name() == Some("main") {
+                platform::set_system_dns(&config, false).ok();
+            }
             default(info);
         }));
     }
@@ -72,10 +75,7 @@ fn run(config_path: &Path, system: bool) -> Result<()> {
     let servers: Vec<&str> = config.server.iter().map(|s| s.name.as_str()).collect();
     logbook::log(&format!("abdnsd {} ready on {:?}; servers: {}", env!("CARGO_PKG_VERSION"), config.listen, servers.join(", ")));
     let stop = Arc::new(AtomicBool::new(false));
-    {
-        let stop = stop.clone();
-        ctrlc::set_handler(move || stop.store(true, Ordering::SeqCst)).context("cannot handle stop signals")?;
-    }
+    rt::on_stop(&stop).context("cannot handle stop signals")?;
     guard::Guard::new(config.clone(), config_path.to_path_buf(), system, shared, signals).run(&stop);
     if system {
         // Arrêt voulu : le poste repasse sur le DNS du réseau.

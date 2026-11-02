@@ -380,7 +380,7 @@ impl Guard {
         }
         if current != self.network {
             let lan = current.as_ref().map(|n| Lan { servers: sockets(&n.dns), domain: n.domain.clone() }).unwrap_or_default();
-            *write(&self.shared.lan) = lan;
+            *write(&self.shared.lan) = Arc::new(lan);
             if self.local {
                 self.next_check = now;
             }
@@ -492,7 +492,7 @@ impl Guard {
 }
 
 /// Attend qu'un serveur chiffré réponde (démarrage), au plus `secs` secondes.
-pub fn wait_encrypted(resolver: &Resolver, secs: u64) -> bool {
+pub fn wait_encrypted(resolver: &Arc<Resolver>, secs: u64) -> bool {
     let start = logbook::now();
     while logbook::now().saturating_sub(start) < secs {
         if resolver.probe(&probe_name()).is_some() {

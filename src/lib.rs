@@ -13,6 +13,7 @@ pub mod i18n;
 pub mod logbook;
 pub mod platform;
 pub mod relay;
+pub mod rt;
 
 use std::sync::{Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
