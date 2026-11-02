@@ -14,7 +14,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::time::timeout;
 
-use crate::doh::Resolver;
+use crate::resolver::Resolver;
 use crate::{dns, lock, read, rt};
 
 /// Requêtes ou connexions traitées en même temps ; au-delà, les nouvelles sont ignorées

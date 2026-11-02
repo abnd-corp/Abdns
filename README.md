@@ -242,7 +242,7 @@ make check                      # formatting, Clippy (warnings as errors), tests
 make build
 ```
 
-To try abdns without touching the system DNS, use a `listen` port above 1024 and run `cargo run -- --config my.toml service --no-system`, then query it with `dig @127.0.0.1 -p <port> example.com`. Only `src/platform/` depends on the operating system: Windows support means implementing its functions there. Dependencies and their changelogs: [`docs/stack.md`](docs/stack.md); design decisions: [`docs/adr/`](docs/adr/).
+To try abdns without touching the system DNS, use a `listen` port above 1024 and run `cargo run --bin abdnsd -- --config my.toml --no-system`, then query it with `dig @127.0.0.1 -p <port> example.com`. Only `src/platform/` depends on the operating system: Windows support means implementing its functions there. Dependencies and their changelogs: [`docs/stack.md`](docs/stack.md); design decisions: [`docs/adr/`](docs/adr/).
 
 ## Contributing
 

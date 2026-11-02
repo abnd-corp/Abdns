@@ -4,7 +4,7 @@
 
 | Niveau | Où | Ce qu'il vérifie |
 |---|---|---|
-| **Unitaire** | `#[cfg(test)]` dans `src/*.rs` | Fonctions pures : messages DNS (dont 200 000 messages aléatoires ou abîmés), verrous repris après une panique, cache et durées de vie, configuration, routage des noms, limiteur de notifications, analyse des sorties des outils système (`ip`, `nmcli`, `resolvectl`, `ipconfig`…), unité systemd, plist launchd |
+| **Unitaire** | `#[cfg(test)]` dans les modules de `src/` | Fonctions pures : messages DNS (dont 200 000 messages aléatoires ou abîmés), verrous repris après une panique, cache et durées de vie, configuration, routage des noms, limiteur de notifications, analyse des sorties des outils système (`ip`, `nmcli`, `resolvectl`, `ipconfig`…), unité systemd, plist launchd |
 | **Intégration** | `src/relay.rs` (tests), `tests/cli.rs` | Le relais en processus avec un faux DNS du réseau (UDP, TCP, réponse forgée ignorée, délai dépassé, noms locaux non signalés, SERVFAIL sans fuite) ; l'outil `abdns` lancé pour de vrai (`version`, `help`, `check`, `status` et son repli sur le fichier d'état, `token`, `completions`, erreurs quand le service ne tourne pas) |
 | **Bout en bout** | `tests/service.rs` | Le vrai service `abdnsd` (`--no-system`) est démarré, interrogé en UDP et en TCP, piloté par l'outil `abdns` par la socket de commande (`status`, `test`, `mode`, `reload`) et par sa configuration (rechargée à chaud, invalide ignorée), puis arrêté par SIGTERM (socket retirée) |
 

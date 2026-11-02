@@ -21,3 +21,26 @@ Outils système macOS appelés : `route`, `ipconfig`, `networksetup`, `osascript
 Outils système Linux appelés : `ip`, `resolvectl` (systemd-resolved), `nmcli` (NetworkManager, facultatif), `systemctl`, `loginctl`, `runuser`, `journalctl`, `notify-send` (libnotify), `xdg-open` (xdg-utils). Changements de réseau : socket netlink du noyau (liens, adresses, routes), par libc ; `ip` et `nmcli` ne tournent qu'à un changement, ou toutes les 60 s par sécurité. `resolvectl dns` garde son contrôle toutes les 5 s : netlink ne voit pas NetworkManager défaire le réglage ([ADR 0004](adr/0004-support-linux.md)).
 
 Outils de publication : `lipo` (binaire macOS universel), `gh` (versions GitHub), Homebrew (`packaging/homebrew/abdns.rb`), `installShellFiles` (Nix).
+
+## Structure du code
+
+Un module par sujet ; tout ce qui dépend du système est dans `platform/`.
+
+```
+src/
+  bin/abdns.rs        l'outil : commandes et affichage
+  bin/abdnsd.rs       le service : démarrage et arrêt
+  config.rs           lecture et validation de la configuration
+  control.rs          canal de commande entre abdns et abdnsd
+  dns.rs              format des messages DNS
+  i18n.rs             textes en anglais et en français
+  logbook.rs          journal et domaines envoyés en clair
+  relay.rs            écoute UDP et TCP, routage vers le chiffré ou le réseau
+  rt.rs               runtime d'entrées-sorties à un fil, signaux d'arrêt
+  resolver/           client DoH : ordre et santé des serveurs (mod), connexion HTTPS (https), cache
+  guard/              la garde : chiffré ou en clair (mod), réseau, notifications, sondes, relecture
+  platform/           mod.rs (interface), other.rs (Windows, à venir)
+    macos/            réseau, DNS du poste, session de l'utilisateur, service launchd
+    linux/            réseau, DNS du poste (resolved), session graphique, service systemd
+```
+

@@ -222,7 +222,7 @@ make check                      # formatage, Clippy (avertissements bloquants), 
 make build
 ```
 
-Pour essayer abdns sans toucher au DNS du système : un port `listen` au-dessus de 1024, `cargo run -- --config essai.toml service --no-system`, puis `dig @127.0.0.1 -p <port> example.com`. Seul `src/platform/` dépend du système : Windows s'y ajoutera. Dépendances et changelogs : [`docs/stack.md`](docs/stack.md) ; décisions : [`docs/adr/`](docs/adr/).
+Pour essayer abdns sans toucher au DNS du système : un port `listen` au-dessus de 1024, `cargo run --bin abdnsd -- --config essai.toml --no-system`, puis `dig @127.0.0.1 -p <port> example.com`. Seul `src/platform/` dépend du système : Windows s'y ajoutera. Dépendances et changelogs : [`docs/stack.md`](docs/stack.md) ; décisions : [`docs/adr/`](docs/adr/).
 
 ## Contribuer
 

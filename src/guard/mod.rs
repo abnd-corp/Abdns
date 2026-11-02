@@ -8,24 +8,33 @@
 //! Notifications limitées : un changement de mode à la fois, les nouveaux domaines en clair au
 //! plus toutes les 5 min, un rappel toutes les 30 min, au plus 6 notifications par 10 min.
 
-use std::collections::{BTreeSet, VecDeque};
-use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpStream};
+mod network;
+mod notice;
+mod probe;
+mod reload;
+
+use std::collections::BTreeSet;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use serde_json::json;
 
 use crate::config::Config;
 use crate::control::Signals;
-use crate::doh::Resolver;
 use crate::i18n::Text;
 use crate::platform::{self, Network};
-use crate::relay::{Lan, Shared, exchange};
-use crate::{dns, lock, logbook, write};
+use crate::relay::Shared;
+use crate::resolver::Resolver;
+use crate::{logbook, write};
+
+use notice::Limiter;
+pub use probe::probe_name;
+use probe::{PORTAL_PROBE, answers, portal, sockets};
+use reload::stamp;
 
 /// Relecture du réseau sans abonnement du système (ou s'il échoue).
 const NETWORK_EVERY: u64 = 5;
@@ -40,14 +49,7 @@ const FIRST_NAMES_AFTER: u64 = 60;
 const NAMES_EVERY: u64 = 300;
 const PORTAL_EVERY: u64 = 60;
 const REMINDER_EVERY: u64 = 30 * 60;
-/// Secours utilisé depuis au moins une minute avant de le signaler.
-const FALLBACK_NOTICE_AFTER: u64 = 60;
-const NOTICE_WINDOW: u64 = 600;
-const NOTICES_PER_WINDOW: usize = 6;
 const FAILURES_BEFORE_LOCAL: u32 = 2;
-/// Noms cités dans une notification ; les suivants sont comptés.
-const NAMES_SHOWN: usize = 4;
-const PORTAL_PROBE: &str = "http://captive.apple.com/hotspot-detect.html";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Force {
@@ -83,75 +85,6 @@ pub fn state_file(config: &Config) -> PathBuf {
     config.state_dir.join("status.json")
 }
 
-static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Nom jamais demandé (donc jamais en cache) d'une zone signée : NXDOMAIN attendu.
-pub fn probe_name() -> String {
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
-    format!("abdns-{nanos:x}{:x}.example.org", COUNTER.fetch_add(1, Ordering::Relaxed))
-}
-
-/// Vrai si le serveur en clair répond (NOERROR ou NXDOMAIN) dans le délai.
-fn answers(server: SocketAddr, timeout: Duration) -> bool {
-    let query = dns::query(0x6764, &probe_name(), 1);
-    exchange(server, &query, false, timeout).is_ok_and(|r| matches!(dns::rcode(&r), Some(0 | dns::NXDOMAIN)))
-}
-
-fn sockets(dns: &[IpAddr]) -> Vec<SocketAddr> {
-    dns.iter().map(|&ip| SocketAddr::new(ip, 53)).collect()
-}
-
-/// Portail captif : la page d'essai d'Apple, demandée par le DNS du réseau, ne répond pas
-/// « Success ». Sans réponse du tout, on ne conclut rien.
-fn portal(dns: &[IpAddr]) -> bool {
-    let query = dns::query(0x7074, "captive.apple.com", 1);
-    let Some(ip) = sockets(dns)
-        .into_iter()
-        .find_map(|s| exchange(s, &query, false, Duration::from_secs(2)).ok())
-        .and_then(|r| dns::ipv4_answers(&r).first().copied())
-    else {
-        return false;
-    };
-    let fetch = || -> std::io::Result<String> {
-        let mut stream = TcpStream::connect_timeout(&SocketAddr::new(IpAddr::V4(ip), 80), Duration::from_secs(3))?;
-        stream.set_read_timeout(Some(Duration::from_secs(4)))?;
-        stream.write_all(b"GET /hotspot-detect.html HTTP/1.0\r\nHost: captive.apple.com\r\nUser-Agent: CaptiveNetworkSupport\r\n\r\n")?;
-        let mut body = Vec::new();
-        stream.take(65_536).read_to_end(&mut body)?;
-        Ok(String::from_utf8_lossy(&body).into_owned())
-    };
-    fetch().is_ok_and(|page| !page.contains("Success"))
-}
-
-/// Noms pas encore signalés, ordre d'arrivée gardé ; `reported` retient les signalés.
-fn new_names(names: &[String], reported: &mut BTreeSet<String>) -> Vec<String> {
-    names.iter().filter(|n| reported.insert((*n).clone())).cloned().collect()
-}
-
-/// (noms cités, nombre de noms en plus).
-fn summary(names: &[String]) -> (String, usize) {
-    (names[..names.len().min(NAMES_SHOWN)].join(", "), names.len().saturating_sub(NAMES_SHOWN))
-}
-
-/// Au plus `NOTICES_PER_WINDOW` notifications par fenêtre ; les autres vont au journal seul.
-#[derive(Default)]
-struct Limiter {
-    sent: VecDeque<u64>,
-}
-
-impl Limiter {
-    fn allow(&mut self, now: u64) -> bool {
-        while self.sent.front().is_some_and(|&t| now.saturating_sub(t) >= NOTICE_WINDOW) {
-            self.sent.pop_front();
-        }
-        if self.sent.len() >= NOTICES_PER_WINDOW {
-            return false;
-        }
-        self.sent.push_back(now);
-        true
-    }
-}
-
 pub struct Guard {
     config: Arc<Config>,
     config_path: PathBuf,
@@ -178,10 +111,6 @@ pub struct Guard {
     fallback_notified: bool,
     local_disabled_notified: bool,
     limiter: Limiter,
-}
-
-fn stamp(path: &PathBuf) -> Option<SystemTime> {
-    std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
 impl Guard {
@@ -214,22 +143,6 @@ impl Guard {
             local_disabled_notified: false,
             limiter: Limiter::default(),
         }
-    }
-
-    fn notify(&mut self, now: u64, title: &str, body: &str) {
-        if self.limiter.allow(now) {
-            platform::notify(title, body);
-        } else {
-            logbook::log(&format!("notification held back: {title} — {body}"));
-        }
-    }
-
-    fn network_label(&self) -> String {
-        self.network.as_ref().map_or_else(|| self.text.unknown_network(), |n| n.label.clone())
-    }
-
-    fn network_dns(&self) -> Vec<IpAddr> {
-        self.network.as_ref().map(|n| n.dns.clone()).unwrap_or_default()
     }
 
     fn force(&self) -> Force {
@@ -267,46 +180,6 @@ impl Guard {
         let minutes = now.saturating_sub(self.local_since).div_ceil(60);
         let body = self.text.restored_body(minutes, self.clear_total);
         self.notify(now, &self.text.restored_title(), &body);
-    }
-
-    /// Domaines partis en clair depuis le dernier relevé : tous au journal, les nouveaux en
-    /// notification.
-    fn report_clear(&mut self, now: u64) {
-        let names = std::mem::take(&mut *lock(&self.shared.clear));
-        if names.is_empty() {
-            return;
-        }
-        logbook::clear_names(&self.config.clear_log, &self.network_label().replace(' ', "_"), &names);
-        let fresh = new_names(&names, &mut self.reported);
-        self.clear_total += fresh.len();
-        if !fresh.is_empty() {
-            let (shown, more) = summary(&fresh);
-            let body = self.text.names(&shown, more);
-            self.notify(now, &self.text.names_title(), &body);
-        }
-    }
-
-    /// Serveur principal muet depuis une minute : un message ; de retour : un message.
-    fn follow_servers(&mut self, now: u64, answering: Option<usize>, resolver: &Resolver) {
-        match answering {
-            Some(0) => {
-                self.fallback_since = None;
-                if self.fallback_notified {
-                    self.fallback_notified = false;
-                    let body = self.text.primary_back_body(resolver.name(0));
-                    self.notify(now, &self.text.primary_back_title(), &body);
-                }
-            }
-            Some(index) => {
-                let since = *self.fallback_since.get_or_insert(now);
-                if !self.fallback_notified && now.saturating_sub(since) >= FALLBACK_NOTICE_AFTER {
-                    self.fallback_notified = true;
-                    let body = self.text.fallback_body(resolver.name(0), resolver.name(index));
-                    self.notify(now, &self.text.fallback_title(), &body);
-                }
-            }
-            None => {}
-        }
     }
 
     fn check(&mut self, now: u64) {
@@ -376,75 +249,6 @@ impl Guard {
         let tmp = path.with_extension("tmp");
         if std::fs::write(&tmp, format!("{state:#}\n")).and_then(|()| std::fs::rename(&tmp, &path)).is_err() {
             logbook::log(&format!("cannot write {}", path.display()));
-        }
-    }
-
-    fn update_network(&mut self, now: u64) {
-        let current = platform::network();
-        if current.as_ref().map(Network::key) != self.network.as_ref().map(Network::key) {
-            let description = current.as_ref().map_or_else(|| "none".to_owned(), |n| format!("{} {} (DNS {:?})", n.label, n.key(), n.dns));
-            logbook::log(&format!("network: {description}"));
-            self.failures = 0;
-            self.next_check = now;
-        }
-        if current != self.network {
-            let lan = current.as_ref().map(|n| Lan { servers: sockets(&n.dns), domain: n.domain.clone() }).unwrap_or_default();
-            *write(&self.shared.lan) = Arc::new(lan);
-            if self.local {
-                self.next_check = now;
-            }
-        }
-        self.network = current;
-    }
-
-    /// Le réglage du DNS du poste peut être défait par un autre service : il est refait.
-    fn keep_system_dns(&self) {
-        if self.system
-            && !self.network_dns().is_empty()
-            && let Err(error) = platform::keep_system_dns(&self.config)
-        {
-            logbook::log(&format!("{error:#}"));
-        }
-    }
-
-    /// Fichier de configuration modifié : relu ; s'il est valide, appliqué sans redémarrer.
-    fn reload(&mut self, now: u64) {
-        let current = stamp(&self.config_path);
-        if current == self.config_stamp {
-            return;
-        }
-        self.config_stamp = current;
-        let applied = Config::read(&self.config_path).and_then(|new| Ok((Resolver::new(&new)?, new)));
-        match applied {
-            Ok((_, new)) if new == *self.config => {}
-            Ok((resolver, new)) => {
-                if new.listen != self.config.listen {
-                    logbook::log("listen changed: restart abdns to apply it");
-                }
-                let services_changed = new.network_services != self.config.network_services;
-                *write(&self.shared.resolver) = Arc::new(resolver);
-                self.text = Text(new.language);
-                self.config = Arc::new(new);
-                if self.system
-                    && services_changed
-                    && let Err(error) = platform::set_system_dns(&self.config, true)
-                {
-                    logbook::log(&format!("{error:#}"));
-                }
-                self.fallback_since = None;
-                self.fallback_notified = false;
-                self.next_check = now;
-                let names: Vec<&str> = self.config.server.iter().map(|s| s.name.as_str()).collect();
-                logbook::log(&format!("configuration reloaded; servers: {}", names.join(", ")));
-                let body = self.text.reloaded_body(&names.join(" → "));
-                self.notify(now, &self.text.reloaded_title(), &body);
-            }
-            Err(error) => {
-                logbook::log(&format!("configuration ignored: {error:#}"));
-                let first_line = format!("{error:#}").lines().next().unwrap_or_default().to_owned();
-                let body = self.text.invalid_config_body(&first_line);
-                self.notify(now, &self.text.invalid_config_title(), &body);
-            }
         }
     }
 
@@ -523,33 +327,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_new_names_are_reported() {
-        let mut reported = BTreeSet::new();
-        let first: Vec<String> = ["wifi.sncf", "captive.apple.com", "wifi.sncf"].map(str::to_owned).to_vec();
-        assert_eq!(new_names(&first, &mut reported), vec!["wifi.sncf".to_owned(), "captive.apple.com".to_owned()]);
-        let second: Vec<String> = ["wifi.sncf", "lemonde.fr"].map(str::to_owned).to_vec();
-        assert_eq!(new_names(&second, &mut reported), vec!["lemonde.fr".to_owned()]);
-        let many: Vec<String> = (0..7).map(|i| format!("n{i}.fr")).collect();
-        assert_eq!(summary(&many), ("n0.fr, n1.fr, n2.fr, n3.fr".to_owned(), 3));
-    }
-
-    #[test]
-    fn notifications_are_capped() {
-        let mut limiter = Limiter::default();
-        assert!((0..NOTICES_PER_WINDOW).all(|i| limiter.allow(100 + i as u64)));
-        assert!(!limiter.allow(200));
-        assert!(limiter.allow(100 + NOTICE_WINDOW));
-    }
-
-    #[test]
     fn forced_mode() {
         assert_eq!(Force::parse("local\n"), Some(Force::Local));
         assert_eq!(Force::parse("encrypted"), Some(Force::Encrypted));
         assert!(Force::parse("whatever").is_none());
-    }
-
-    #[test]
-    fn unique_probe_names() {
-        assert_ne!(probe_name(), probe_name());
     }
 }

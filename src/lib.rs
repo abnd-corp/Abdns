@@ -7,12 +7,12 @@
 pub mod config;
 pub mod control;
 pub mod dns;
-pub mod doh;
 pub mod guard;
 pub mod i18n;
 pub mod logbook;
 pub mod platform;
 pub mod relay;
+pub mod resolver;
 pub mod rt;
 
 use std::sync::{Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
