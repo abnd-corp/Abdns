@@ -1,0 +1,43 @@
+# abdns configuration — copy to /etc/abdns/config.toml.
+# Only [upstream] is required; every other value below shows its default.
+
+# Language of notifications: "en" or "fr".
+language = "en"
+
+# Where the system sends its DNS queries.
+listen = ["127.0.0.1:53", "[::1]:53"]
+
+# dnsproxy binary and its local port.
+dnsproxy = "/usr/local/bin/dnsproxy"
+dnsproxy_port = 5300
+
+# State (status, forced mode, dnsproxy server files) and names looked up in clear.
+state_dir = "/var/run/abdns"
+clear_log = "/var/log/abdns/clear.log"
+
+# macOS network services whose DNS points to abdns (networksetup -listallnetworkservices).
+network_services = ["Wi-Fi"]
+
+# Your own DNS-over-HTTPS resolver.
+[upstream]
+url = "https://203.0.113.5/dns-query"
+# Required when url uses a host name: the resolver is reached without any plaintext lookup.
+# ip = "203.0.113.5"
+# Secret path segment kept out of this file: url must then end with "/".
+# token_file = "/etc/abdns/token"
+
+# Encrypted fallbacks, used only when the upstream does not answer.
+[[fallback]]
+name = "Mullvad"
+url = "https://dns.mullvad.net/dns-query"
+ip = "194.242.2.2"
+
+[[fallback]]
+name = "DNS.SB"
+url = "https://doh.dns.sb/dns-query"
+ip = "185.222.222.222"
+
+[[fallback]]
+name = "Digitale Gesellschaft"
+url = "https://dns.digitale-gesellschaft.ch/dns-query"
+ip = "185.95.218.42"

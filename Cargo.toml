@@ -1,0 +1,20 @@
+[package]
+name = "abdns"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Encrypted DNS for your computer: your own DoH resolver first, private fallbacks, network DNS only as a last resort for captive portals"
+repository = "https://github.com/abnd-corp/Abdns"
+readme = "README.md"
+keywords = ["dns", "doh", "privacy", "captive-portal", "resolver"]
+categories = ["network-programming", "command-line-utilities"]
+
+[dependencies]
+anyhow = "1"
+ctrlc = { version = "3", features = ["termination"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+
+[profile.release]
+strip = true

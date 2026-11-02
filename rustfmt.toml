@@ -1,0 +1,3 @@
+# Largeur des lignes de tout le workspace (le code existant est écrit à cette largeur).
+max_width = 140
+use_small_heuristics = "Max"
