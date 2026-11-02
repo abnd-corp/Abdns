@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, ensure};
 
-use super::{Network, external};
+use super::Network;
 use crate::config::Config;
 use crate::logbook;
 
@@ -32,6 +32,11 @@ fn dhcp_option<'a>(packet: &'a str, name: &str) -> Option<&'a str> {
         let rest = l.trim_start().strip_prefix(name)?.trim_start();
         rest.starts_with('(').then(|| rest.split_once(':').map(|(_, v)| v.trim()))?
     })
+}
+
+/// Retire les adresses de boucle locale : le DNS du réseau ne peut pas être le relais.
+fn external(dns: impl IntoIterator<Item = IpAddr>) -> Vec<IpAddr> {
+    dns.into_iter().filter(|ip| !ip.is_loopback() && !ip.is_unspecified()).collect()
 }
 
 /// DNS du bail : « domain_name_server (ip_mult): {a, b} ».
