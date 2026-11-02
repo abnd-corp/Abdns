@@ -1,0 +1,16 @@
+# Contrôles communs de l'organisation (charte Abnd, R5 et R16).
+name: Gouvernance
+
+on:
+  pull_request:
+    branches: [dev]
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  controle:
+    name: Contrôle des PR
+    uses: abnd-corp/gouvernance/.github/workflows/controle-pr.yml@9993a802319c0cfc9489b20f172dea72ccbb0d7c # gouvernance, 23 octobre 2026

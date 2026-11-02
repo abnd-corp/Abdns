@@ -1,0 +1,14 @@
+# Mises à jour automatiques (charte R24) : chaque lundi, vers dev, avec 7 jours de quarantaine.
+# Les correctifs de sécurité passent sans attendre. Ajouter ici les écosystèmes du projet (npm, cargo, docker…).
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule: { interval: weekly, day: monday, time: "06:00", timezone: Europe/Paris }
+    cooldown: { default-days: 7 }
+    commit-message: { prefix: ci }
+    groups:
+      actions:
+        patterns: ["*"]

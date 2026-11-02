@@ -1,0 +1,15 @@
+# Chemin commun feature/** → dev → staging → main (charte Abnd, R45).
+name: Flux de branches
+
+on:
+  pull_request:
+    branches: [dev, staging, main]
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    name: Branche source autorisée
+    uses: abnd-corp/gouvernance/.github/workflows/branche-source.yml@ef4919b6d078e96c6fc00d21d90be4d1fb84a8cb # gouvernance, 23 octobre 2026
