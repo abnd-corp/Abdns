@@ -20,6 +20,19 @@ pub fn admin_gid() -> Option<u32> {
     })
 }
 
+/// Pas d'abonnement aux changements de réseau : la garde relit le réseau toutes les 5 s.
+pub struct Watch;
+
+impl Watch {
+    pub fn new() -> Option<Self> {
+        None
+    }
+
+    pub fn changed(&mut self) -> bool {
+        false
+    }
+}
+
 pub fn network() -> Option<Network> {
     None
 }

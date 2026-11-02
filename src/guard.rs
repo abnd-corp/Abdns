@@ -27,7 +27,12 @@ use crate::platform::{self, Network};
 use crate::relay::{Lan, Shared, exchange};
 use crate::{dns, lock, logbook, write};
 
+/// Relecture du réseau sans abonnement du système (ou s'il échoue).
 const NETWORK_EVERY: u64 = 5;
+/// Avec abonnement : contrôle de sécurité, pour un changement de DNS seul qu'il ne verrait pas.
+const NETWORK_SAFETY_EVERY: u64 = 60;
+/// Date du fichier de configuration, et réglage du DNS du poste (défait par un autre service).
+const CONFIG_EVERY: u64 = 5;
 const CHECK_EVERY: u64 = 30;
 const RETRY_AFTER: u64 = 3;
 const LOCAL_CHECK_EVERY: u64 = 10;
@@ -156,10 +161,12 @@ pub struct Guard {
     shared: Arc<Shared>,
     text: Text,
     network: Option<Network>,
+    watch: Option<platform::Watch>,
     local: bool,
     failures: u32,
     next_check: u64,
     next_network: u64,
+    next_config: u64,
     local_since: u64,
     clear_total: usize,
     reported: BTreeSet<String>,
@@ -189,10 +196,12 @@ impl Guard {
             shared,
             text,
             network: None,
+            watch: platform::Watch::new(),
             local: false,
             failures: 0,
             next_check: 0,
             next_network: 0,
+            next_config: 0,
             local_since: 0,
             clear_total: 0,
             reported: BTreeSet::new(),
@@ -444,13 +453,19 @@ impl Guard {
         if self.signals.reload.swap(false, Ordering::SeqCst) {
             self.config_stamp = None;
             self.next_network = now;
+            self.next_config = now;
         }
         if self.signals.check.swap(false, Ordering::SeqCst) {
             self.next_check = now;
         }
-        if now >= self.next_network {
-            self.next_network = now + NETWORK_EVERY;
+        // Le système prévient d'un changement : plus besoin de relire le réseau toutes les 5 s.
+        let changed = self.watch.as_mut().is_some_and(platform::Watch::changed);
+        if changed || now >= self.next_network {
+            self.next_network = now + if self.watch.is_some() { NETWORK_SAFETY_EVERY } else { NETWORK_EVERY };
             self.update_network(now);
+        }
+        if now >= self.next_config {
+            self.next_config = now + CONFIG_EVERY;
             self.reload(now);
             self.keep_system_dns();
         }
