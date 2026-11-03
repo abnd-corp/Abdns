@@ -34,6 +34,8 @@ applications ──► abdns (127.0.0.1:53) ──DoH──► server 1 (your re
 | A fallback has been in use for 1 min | One notification ("Fallback server in use"), one more when server 1 is back |
 | No server answers but an answer is cached | The last known answer is served (up to one day, RFC 8767) |
 | Every server fails twice in a row **and** the network DNS answers (captive portal, DoH blocked) | Switches to the network DNS, notifies you once, opens the sign-in page if a portal is detected |
+| New network with a captive portal | The portal is looked for during the first check: one failure of every server is enough, the sign-in page opens at once |
+| No network, or a different one | No check without a network; a different network gets fresh connections (the cache stays), a short drop of the same one keeps them |
 | Encrypted DNS answers again | Switches back and tells you how long it stayed in clear and how many names were sent |
 | Name of the local network (`nas.lan`, `printer.local`, `router.home.arpa`, DHCP domain, reverse lookup of a private address such as 192.168.x.x) | Always sent to the network DNS, never reported, never counted |
 | DNSSEC failure (SERVFAIL from your resolver) | Stays an error: never a reason to switch to clear |

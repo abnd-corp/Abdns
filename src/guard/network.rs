@@ -26,6 +26,14 @@ impl Guard {
             logbook::log(&format!("network: {description}"));
             self.failures = 0;
             self.next_check = now;
+            if let Some(key) = current.as_ref().map(Network::key) {
+                self.fresh = true;
+                // Autre réseau, autre adresse : les connexions de l'ancien ne répondront plus.
+                if self.last_key.as_ref().is_some_and(|last| *last != key) {
+                    self.shared.resolver().reconnect();
+                }
+                self.last_key = Some(key);
+            }
         }
         if current != self.network {
             let lan = current.as_ref().map(|n| Lan { servers: sockets(&n.dns), domain: n.domain.clone() }).unwrap_or_default();
