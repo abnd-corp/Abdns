@@ -193,6 +193,12 @@ impl Guard {
     fn check(&mut self, now: u64) {
         let force = self.force();
         let resolver = self.shared.resolver();
+        // Sans réseau, rien à contrôler : l'état est seulement écrit, son retour relance le contrôle.
+        if self.network.is_none() && platform::SEES_NETWORK {
+            self.next_check = now + CHECK_EVERY;
+            self.write_state(force, None, &resolver);
+            return;
+        }
         let dns = self.network_dns();
         let look_for_portal = std::mem::take(&mut self.fresh) && force == Force::Auto && !self.local && !dns.is_empty();
         let portal = look_for_portal.then(|| {
@@ -294,8 +300,7 @@ impl Guard {
             self.reload(now);
             self.keep_system_dns();
         }
-        // Sans réseau, rien à contrôler : son retour relance le contrôle.
-        if now >= self.next_check && (self.network.is_some() || !platform::SEES_NETWORK) {
+        if now >= self.next_check {
             self.check(now);
         }
         if !self.local {
