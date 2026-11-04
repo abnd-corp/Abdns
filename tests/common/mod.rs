@@ -34,6 +34,11 @@ impl Drop for Dir {
     }
 }
 
+/// Chemin écrit comme chaîne TOML : entre guillemets, antislashs de Windows échappés.
+pub fn toml_path(path: &Path) -> String {
+    format!("{:?}", path.to_string_lossy())
+}
+
 /// Port UDP libre sur la boucle locale (au-dessus de 1024 : pas besoin d'être root).
 pub fn free_port() -> u16 {
     UdpSocket::bind("127.0.0.1:0").and_then(|s| s.local_addr()).expect("free port").port()
@@ -43,10 +48,10 @@ pub fn free_port() -> u16 {
 pub fn write_config(dir: &Dir, port: u16, server_name: &str) -> PathBuf {
     let path = dir.path("config.toml");
     let text = format!(
-        "listen = [\"127.0.0.1:{port}\"]\nlocal_fallback = false\nstate_dir = \"{state}\"\nclear_log = \"{log}\"\n\n\
+        "listen = [\"127.0.0.1:{port}\"]\nlocal_fallback = false\nstate_dir = {state}\nclear_log = {log}\n\n\
 [[server]]\nname = \"{server_name}\"\nurl = \"https://127.0.0.1:9/dns-query\"\n",
-        state = dir.path("state").display(),
-        log = dir.path("log/clear.log").display(),
+        state = toml_path(&dir.path("state")),
+        log = toml_path(&dir.path("log/clear.log")),
     );
     std::fs::write(&path, text).expect("config");
     path

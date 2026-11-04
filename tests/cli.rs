@@ -1,9 +1,7 @@
 //! Intégration : les commandes de l'outil `abdns` telles qu'elles sont lancées, sans service en route.
-#![cfg(unix)]
-
 mod common;
 
-use common::{Dir, free_port, run, write_config};
+use common::{Dir, free_port, run, toml_path, write_config};
 
 fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
@@ -83,7 +81,7 @@ fn check_reports_a_missing_token_file_and_a_missing_config() {
     let token = dir.path("absent.token");
     std::fs::write(
         &path,
-        format!("[[server]]\nname = \"mine\"\nurl = \"https://203.0.113.5/dns-query/\"\ntoken_file = \"{}\"\n", token.display()),
+        format!("[[server]]\nname = \"mine\"\nurl = \"https://203.0.113.5/dns-query/\"\ntoken_file = {}\n", toml_path(&token)),
     )
     .unwrap();
     let out = run(&path, &["check"], "");
@@ -149,11 +147,11 @@ fn status_falls_back_to_the_state_file_in_both_formats() {
 }
 
 fn token_config(dir: &Dir, servers: &[(&str, bool)]) -> std::path::PathBuf {
-    let mut text = format!("state_dir = \"{}\"\n", dir.path("state").display());
+    let mut text = format!("state_dir = {}\n", toml_path(&dir.path("state")));
     for (name, with_token) in servers {
         text += &format!("\n[[server]]\nname = \"{name}\"\nurl = \"https://203.0.113.5/dns-query/\"\n");
         if *with_token {
-            text += &format!("token_file = \"{}\"\n", dir.path(&format!("{name}.token")).display());
+            text += &format!("token_file = {}\n", toml_path(&dir.path(&format!("{name}.token"))));
         }
     }
     let path = dir.path("config.toml");
@@ -169,8 +167,12 @@ fn token_is_extracted_from_a_full_url_and_stored_privately() {
     assert!(out.status.success(), "{}", text(&out.stderr));
     let file = dir.path("mine.token");
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "abcdefghijklmnop0123456789\n");
-    use std::os::unix::fs::PermissionsExt;
-    assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+    // Les droits `0600` n'existent que sous Unix ; sous Windows, ce sont les ACL du dossier (ADR 0006).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+    }
     // Le jeton n'est jamais répété dans ce que le programme affiche.
     assert!(!text(&out.stdout).contains("abcdefghijklmnop0123456789"));
     assert!(!text(&out.stderr).contains("abcdefghijklmnop0123456789"));
