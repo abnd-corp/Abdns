@@ -1,6 +1,8 @@
 //! abdnsd : le service. Relais DNS local, client DoH, garde et canal de commande.
 
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::process::{ChildStdin, Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
@@ -14,7 +16,10 @@ const USAGE: &str = "Usage: abdnsd [--config FILE] [--no-system]
   --no-system   leave the system DNS untouched (testing)
 See abdnsd(8) and abdns(1).";
 
-/// Relancé toutes les 30 s par le système après un échec : une notification par heure suffit.
+/// Mot écrit au garde-fou avant un arrêt normal.
+const STOPPED: &str = "stopped";
+
+/// Relancé toutes les 5 s par le système après un échec : une notification par heure suffit.
 fn notify_failure(config: &Config, error: &anyhow::Error) {
     let marker = config.state_dir.join("failure-notified");
     let recent = std::fs::metadata(&marker).and_then(|m| m.modified()).is_ok_and(|t| t.elapsed().is_ok_and(|e| e.as_secs() < 3600));
@@ -23,6 +28,40 @@ fn notify_failure(config: &Config, error: &anyhow::Error) {
         let text = Text(config.language);
         platform::notify(&text.stopped_title(), &text.stopped_body(&format!("{error:#}")));
     }
+}
+
+/// Garde-fou : le même programme, relié par un tube que le noyau ferme quoi qu'il arrive au
+/// service, dans son propre groupe de processus pour que launchd ne l'arrête pas avec lui.
+fn watch_exit(config_path: &Path) -> Option<ChildStdin> {
+    let spawned = std::env::current_exe().and_then(|program| {
+        let mut command = Command::new(program);
+        command.arg("--config").arg(config_path).arg("--after-exit").stdin(Stdio::piped());
+        #[cfg(unix)]
+        std::os::unix::process::CommandExt::process_group(&mut command, 0);
+        command.spawn()
+    });
+    match spawned {
+        Ok(mut child) => child.stdin.take(),
+        Err(error) => {
+            logbook::log(&format!("exit watch unavailable: {error}"));
+            None
+        }
+    }
+}
+
+/// `--after-exit` : tube fermé sans « stopped » (service tué, plantage) : DNS du réseau rendu.
+fn after_exit(config_path: &Path) -> Result<()> {
+    let mut said = String::new();
+    std::io::stdin().read_to_string(&mut said).ok();
+    if said.trim() == STOPPED {
+        return Ok(());
+    }
+    let config = Config::read(config_path)?;
+    platform::set_system_dns(&config, false)?;
+    logbook::log("abdnsd ended abruptly: network DNS restored until it restarts");
+    let text = Text(config.language);
+    platform::notify(&text.crashed_title(), &text.crashed_body());
+    Ok(())
 }
 
 fn run(config_path: &Path, system: bool) -> Result<()> {
@@ -46,6 +85,14 @@ fn run(config_path: &Path, system: bool) -> Result<()> {
     }
     let signals = Arc::new(control::Signals::default());
     let started = resolver::Resolver::new(&config).and_then(|resolver| {
+        let problems = resolver.problems();
+        if !problems.is_empty() {
+            logbook::log(&format!("server set aside: {}", problems.join("; ")));
+            if system {
+                let text = Text(config.language);
+                platform::notify(&text.unusable_title(), &text.unusable_body(&problems.join(" ; ")));
+            }
+        }
         let shared = relay::Shared::new(resolver);
         relay::start(&config.listen, &shared)?;
         // Sans canal de commande, le DNS doit continuer : `abdns status` lit alors le fichier d'état.
@@ -68,9 +115,16 @@ fn run(config_path: &Path, system: bool) -> Result<()> {
     if !guard::wait_encrypted(&shared.resolver(), 15) {
         logbook::log("no encrypted server answers yet: the guard will decide");
     }
-    if system && let Err(error) = platform::set_system_dns(&config, true) {
-        logbook::log(&format!("{error:#}"));
-        platform::notify("abdns", &format!("{error:#}"));
+    let mut watch = None;
+    if system {
+        match platform::set_system_dns(&config, true) {
+            Ok(()) if platform::NEEDS_EXIT_WATCH => watch = watch_exit(config_path),
+            Ok(()) => {}
+            Err(error) => {
+                logbook::log(&format!("{error:#}"));
+                platform::notify("abdns", &format!("{error:#}"));
+            }
+        }
     }
     let servers: Vec<&str> = config.server.iter().map(|s| s.name.as_str()).collect();
     logbook::log(&format!("abdnsd {} ready on {:?}; servers: {}", env!("CARGO_PKG_VERSION"), config.listen, servers.join(", ")));
@@ -81,6 +135,9 @@ fn run(config_path: &Path, system: bool) -> Result<()> {
         // Arrêt voulu : le poste repasse sur le DNS du réseau.
         platform::set_system_dns(&config, false).ok();
     }
+    if let Some(mut watch) = watch {
+        watch.write_all(STOPPED.as_bytes()).ok();
+    }
     std::fs::remove_file(control::socket_path(&config)).ok();
     logbook::log("stopped");
     Ok(())
@@ -89,11 +146,13 @@ fn run(config_path: &Path, system: bool) -> Result<()> {
 fn main() -> Result<()> {
     let mut config_path = config::default_path();
     let mut system = true;
+    let mut after = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--config" => config_path = PathBuf::from(args.next().context("--config needs a file")?),
             "--no-system" => system = false,
+            "--after-exit" => after = true,
             "--version" | "-V" => {
                 println!("abdnsd {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
@@ -106,6 +165,9 @@ fn main() -> Result<()> {
                 ensure!(false, "unknown argument: {other}\n{USAGE}");
             }
         }
+    }
+    if after {
+        return after_exit(&config_path);
     }
     run(&config_path, system)
 }

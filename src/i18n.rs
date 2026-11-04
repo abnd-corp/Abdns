@@ -130,6 +130,25 @@ impl Text {
         self.pick(format!("Relay unavailable, network DNS restored: {error}"), format!("Relais impossible, DNS du réseau remis : {error}"))
     }
 
+    pub fn crashed_title(&self) -> String {
+        self.pick("abdns stopped abruptly".into(), "abdns arrêté net".into())
+    }
+
+    pub fn crashed_body(&self) -> String {
+        self.pick(
+            "Network DNS restored, in clear, until abdns restarts (within seconds).".into(),
+            "DNS du réseau remis, en clair, jusqu'à la relance d'abdns (quelques secondes).".into(),
+        )
+    }
+
+    pub fn unusable_title(&self) -> String {
+        self.pick("Server set aside".into(), "Serveur mis de côté".into())
+    }
+
+    pub fn unusable_body(&self, problems: &str) -> String {
+        self.pick(format!("{problems}. The other servers answer."), format!("{problems}. Les autres serveurs répondent."))
+    }
+
     pub fn unknown_network(&self) -> String {
         self.pick("unknown network".into(), "réseau inconnu".into())
     }

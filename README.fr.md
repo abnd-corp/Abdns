@@ -204,7 +204,7 @@ Oui. Modifiez le fichier de configuration : abdns le relit en moins de 5 seconde
 Oui. Un VPN comme Proton VPN ou WireGuard impose son propre DNS tant qu'il est connecté ; abdns reprend dès la déconnexion.
 
 **Que se passe-t-il si abdns plante ?**
-Le DNS du poste est remis sur celui du réseau, et launchd (macOS) ou systemd (Linux) relance abdns en moins de 30 secondes.
+Le DNS du poste est remis sur celui du réseau, et launchd (macOS) ou systemd (Linux) relance abdns en moins de 5 secondes.
 
 **Faut-il Nix ?**
 Non. Homebrew, l'archive d'une version et `make install` fonctionnent sans.

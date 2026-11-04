@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, ensure};
 
 use crate::config::Config;
 use crate::{dns, lock, logbook, rt};
@@ -45,6 +45,9 @@ fn with_id(mut reply: Vec<u8>, query: &[u8]) -> Vec<u8> {
 impl Resolver {
     pub fn new(config: &Config) -> Result<Self> {
         let upstreams = config.server.iter().map(Upstream::new).collect::<Result<Vec<_>>>()?;
+        // Un serveur mal réglé n'arrête pas les autres ; aucun utilisable : le service ne démarre pas.
+        let problems: Vec<&str> = upstreams.iter().filter_map(Upstream::problem).collect();
+        ensure!(problems.len() < upstreams.len(), "{}", problems.join("; "));
         let health = Mutex::new(vec![Health::default(); upstreams.len()]);
         Ok(Self { upstreams, health, cache: Cache::default(), last: AtomicUsize::new(NONE) })
     }
@@ -58,6 +61,11 @@ impl Resolver {
         self.upstreams.iter().for_each(Upstream::reconnect);
     }
 
+    /// Serveurs mis de côté parce que mal réglés, avec la raison.
+    pub fn problems(&self) -> Vec<String> {
+        self.upstreams.iter().filter_map(Upstream::problem).map(str::to_owned).collect()
+    }
+
     /// Serveur qui a répondu en dernier.
     pub fn active(&self) -> Option<usize> {
         Some(self.last.load(Ordering::Relaxed)).filter(|&i| i != NONE)
@@ -67,7 +75,7 @@ impl Resolver {
     pub fn snapshot(&self) -> Vec<(String, bool)> {
         let now = logbook::now();
         let health = lock(&self.health).clone();
-        self.upstreams.iter().zip(health).map(|(u, h)| (u.name.clone(), h.down_until <= now)).collect()
+        self.upstreams.iter().zip(health).map(|(u, h)| (u.name.clone(), u.problem().is_none() && h.down_until <= now)).collect()
     }
 
     fn succeeded(&self, index: usize) {
@@ -91,12 +99,14 @@ impl Resolver {
         h.down_until = logbook::now() + wait;
     }
 
-    /// Serveurs disponibles dans l'ordre ; s'ils sont tous de côté, tous dans l'ordre.
+    /// Serveurs disponibles dans l'ordre ; s'ils sont tous de côté, tous les serveurs bien
+    /// réglés dans l'ordre.
     fn order(&self) -> Vec<usize> {
         let now = logbook::now();
         let health = lock(&self.health);
-        let up: Vec<usize> = (0..self.upstreams.len()).filter(|&i| health.get(i).is_none_or(|h| h.down_until <= now)).collect();
-        if up.is_empty() { (0..self.upstreams.len()).collect() } else { up }
+        let usable: Vec<usize> = (0..self.upstreams.len()).filter(|&i| self.upstreams[i].problem().is_none()).collect();
+        let up: Vec<usize> = usable.iter().copied().filter(|&i| health.get(i).is_none_or(|h| h.down_until <= now)).collect();
+        if up.is_empty() { usable } else { up }
     }
 
     /// Réponse encore valide du cache, avec l'identifiant de la requête.
@@ -209,6 +219,20 @@ mod tests {
         assert_eq!(r.order(), vec![0]);
         assert_eq!(r.active(), Some(0));
         assert_eq!(r.snapshot(), vec![("Google".to_owned(), true), ("Cloudflare".to_owned(), false)]);
+    }
+
+    #[test]
+    fn misconfigured_server_is_set_aside() {
+        let text = "[[server]]\nname = \"VPS\"\nurl = \"https://203.0.113.5/q/\"\ntoken_file = \"/nonexistent/token\"\n\n\
+[[server]]\nname = \"Other\"\nurl = \"https://203.0.113.6/q\"\n";
+        let r = Resolver::new(&Config::parse(text).unwrap()).unwrap();
+        assert_eq!(r.problems().len(), 1);
+        assert!(r.problems()[0].starts_with("VPS: cannot read token"));
+        assert_eq!(r.order(), vec![1]);
+        assert_eq!(r.snapshot(), vec![("VPS".to_owned(), false), ("Other".to_owned(), true)]);
+        // Aucun serveur utilisable : le service ne démarre pas.
+        let alone = "[[server]]\nname = \"VPS\"\nurl = \"https://203.0.113.5/q/\"\ntoken_file = \"/nonexistent/token\"\n";
+        assert!(Resolver::new(&Config::parse(alone).unwrap()).is_err());
     }
 
     #[test]

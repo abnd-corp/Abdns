@@ -39,7 +39,7 @@ pub(super) fn plist(program: &Path, config: &Path) -> String {
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
 <plist version=\"1.0\">\n<dict>\n\t<key>Label</key>\n\t<string>{LABEL}</string>\n\t<key>ProgramArguments</key>\n\t<array>\n{arguments}\t</array>\n\
-\t<key>RunAtLoad</key>\n\t<true/>\n\t<key>KeepAlive</key>\n\t<true/>\n\t<key>ThrottleInterval</key>\n\t<integer>30</integer>\n\
+\t<key>RunAtLoad</key>\n\t<true/>\n\t<key>KeepAlive</key>\n\t<true/>\n\t<key>ThrottleInterval</key>\n\t<integer>5</integer>\n\
 \t<key>StandardOutPath</key>\n\t<string>{LOG_DIR}/abdns.log</string>\n\t<key>StandardErrorPath</key>\n\t<string>{LOG_DIR}/abdns.log</string>\n</dict>\n</plist>\n"
     )
 }

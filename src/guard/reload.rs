@@ -25,7 +25,9 @@ impl Guard {
         self.config_stamp = current;
         let applied = Config::read(&self.config_path).and_then(|new| Ok((Resolver::new(&new)?, new)));
         match applied {
-            Ok((_, new)) if new == *self.config => {}
+            // Même fichier, mêmes serveurs mis de côté : rien à faire. Un jeton réparé (`abdns
+            // reload`) remplace le client même si le fichier n'a pas changé.
+            Ok((resolver, new)) if new == *self.config && resolver.problems() == self.shared.resolver().problems() => {}
             Ok((resolver, new)) => {
                 if new.listen != self.config.listen {
                     logbook::log("listen changed: restart abdns to apply it");
@@ -47,6 +49,12 @@ impl Guard {
                 logbook::log(&format!("configuration reloaded; servers: {}", names.join(", ")));
                 let body = self.text.reloaded_body(&names.join(" → "));
                 self.notify(now, &self.text.reloaded_title(), &body);
+                let problems = self.shared.resolver().problems();
+                if !problems.is_empty() {
+                    logbook::log(&format!("server set aside: {}", problems.join("; ")));
+                    let body = self.text.unusable_body(&problems.join(" ; "));
+                    self.notify(now, &self.text.unusable_title(), &body);
+                }
             }
             Err(error) => {
                 logbook::log(&format!("configuration ignored: {error:#}"));

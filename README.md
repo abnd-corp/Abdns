@@ -213,7 +213,7 @@ Yes. Edit the configuration file: abdns reloads it within 5 seconds and confirms
 Yes. A VPN such as Proton VPN or WireGuard sets its own DNS while connected; abdns is used again as soon as it disconnects.
 
 **What happens if abdns crashes?**
-The system DNS is set back to the network's, and launchd (macOS) or systemd (Linux) restarts abdns within 30 seconds.
+The system DNS is set back to the network's, and launchd (macOS) or systemd (Linux) restarts abdns within 5 seconds.
 
 **Do I need Nix?**
 No. Homebrew, the release archive and `make install` work without it.

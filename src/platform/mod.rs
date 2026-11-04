@@ -19,6 +19,10 @@ mod other;
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub use other::*;
 
+/// Vrai là où le DNS du poste ne se défait pas sans abdns s'il est tué net : un garde-fou le
+/// rend au réseau (macOS). Linux n'en a pas besoin : le noyau retire la table avec le processus.
+pub const NEEDS_EXIT_WATCH: bool = cfg!(target_os = "macos");
+
 /// Faux là où le réseau n'est pas encore lu (`network()` rend toujours `None`).
 pub const SEES_NETWORK: bool = cfg!(any(target_os = "macos", target_os = "linux"));
 
