@@ -33,3 +33,7 @@ strip = true
 lto = "fat"
 codegen-units = 1
 opt-level = "z"
+
+# Chaque bloc unsafe dit pourquoi il est correct (AGENTS.md).
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
