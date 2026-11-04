@@ -47,8 +47,21 @@ pub struct Server {
 /// Emplacements habituels, dans l'ordre : système, Homebrew (Apple Silicon puis Intel).
 const CONFIG_PATHS: &[&str] = &["/etc/abdns/config.toml", "/opt/homebrew/etc/abdns/config.toml", "/usr/local/etc/abdns/config.toml"];
 
-/// Fichier de configuration par défaut : le premier qui existe, sinon `/etc/abdns/config.toml`.
+/// Dossier de l'application sous Windows : `%ProgramData%\abdns` (ADR 0006).
+fn program_data_root(program_data: Option<std::ffi::OsString>) -> PathBuf {
+    program_data.map_or_else(|| PathBuf::from(r"C:\ProgramData"), PathBuf::from).join("abdns")
+}
+
+fn windows_root() -> PathBuf {
+    program_data_root(std::env::var_os("ProgramData"))
+}
+
+/// Fichier de configuration par défaut : le premier qui existe, sinon `/etc/abdns/config.toml`
+/// (sous Windows, `%ProgramData%\abdns\config.toml`).
 pub fn default_path() -> PathBuf {
+    if cfg!(windows) {
+        return windows_root().join("config.toml");
+    }
     CONFIG_PATHS.iter().map(PathBuf::from).find(|p| p.exists()).unwrap_or_else(|| PathBuf::from(CONFIG_PATHS[0]))
 }
 
@@ -61,11 +74,11 @@ fn default_listen() -> Vec<SocketAddr> {
 }
 
 fn default_state_dir() -> PathBuf {
-    PathBuf::from("/var/run/abdns")
+    if cfg!(windows) { windows_root().join("state") } else { PathBuf::from("/var/run/abdns") }
 }
 
 fn default_clear_log() -> PathBuf {
-    PathBuf::from("/var/log/abdns/clear.log")
+    if cfg!(windows) { windows_root().join("logs").join("clear.log") } else { PathBuf::from("/var/log/abdns/clear.log") }
 }
 
 fn default_network_services() -> Vec<String> {
@@ -137,6 +150,14 @@ pub fn valid_token(token: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_paths_live_under_program_data() {
+        let root = program_data_root(Some("D:\\Data".into()));
+        assert!(root.starts_with("D:\\Data") && root.ends_with("abdns"), "{root:?}");
+        let default = program_data_root(None);
+        assert!(default.starts_with(r"C:\ProgramData") && default.ends_with("abdns"), "{default:?}");
+    }
 
     #[test]
     fn token() {
