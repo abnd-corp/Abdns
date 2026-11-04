@@ -52,6 +52,8 @@ const NAMES_EVERY: u64 = 300;
 const PORTAL_EVERY: u64 = 60;
 const REMINDER_EVERY: u64 = 30 * 60;
 const FAILURES_BEFORE_LOCAL: u32 = 2;
+/// Écart entre deux tours de la garde au-delà duquel le poste sortait de veille.
+const WAKE_GAP: u64 = 30;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Force {
@@ -100,6 +102,7 @@ pub struct Guard {
     last_key: Option<String>,
     /// Réseau arrivé depuis le dernier contrôle : le portail est cherché en même temps.
     fresh: bool,
+    last_tick: u64,
     watch: Option<platform::Watch>,
     local: bool,
     failures: u32,
@@ -133,6 +136,7 @@ impl Guard {
             network: None,
             last_key: None,
             fresh: false,
+            last_tick: logbook::now(),
             watch: platform::Watch::new(),
             local: false,
             failures: 0,
@@ -280,6 +284,13 @@ impl Guard {
     }
 
     fn tick(&mut self, now: u64) {
+        // Sortie de veille : les connexions d'avant sont mortes, et le réseau a pu changer.
+        if now.saturating_sub(self.last_tick) > WAKE_GAP {
+            self.shared.resolver().reconnect();
+            self.next_network = now;
+            self.next_check = now;
+        }
+        self.last_tick = now;
         // `abdns reload` : relecture même si la date du fichier n'a pas changé.
         if self.signals.reload.swap(false, Ordering::SeqCst) {
             self.config_stamp = None;

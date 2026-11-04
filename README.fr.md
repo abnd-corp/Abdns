@@ -35,7 +35,7 @@ applications ──► abdns (127.0.0.1:53) ──DoH──► serveur 1 (votre 
 | Aucun serveur ne répond mais une réponse est en cache | La dernière réponse connue est servie (jusqu'à un jour, RFC 8767) |
 | Tous les serveurs échouent deux fois de suite **et** le DNS du réseau répond (portail captif, DoH bloqué) | Bascule sur le DNS du réseau, une seule notification, ouverture de la page de connexion si un portail est détecté |
 | Nouveau réseau avec portail captif | Le portail est cherché pendant le premier contrôle : un seul échec de tous les serveurs suffit, la page de connexion s'ouvre aussitôt |
-| Pas de réseau, ou un autre réseau | Aucun contrôle sans réseau ; un autre réseau reçoit des connexions neuves (le cache reste), une courte coupure du même réseau les garde |
+| Pas de réseau, ou un autre réseau | Aucun contrôle sans réseau ; un autre réseau reçoit des connexions neuves (le cache reste), une courte coupure du même réseau les garde ; la sortie de veille aussi reçoit des connexions neuves |
 | Le DNS chiffré répond de nouveau | Retour au chiffré, avec la durée passée en clair et le nombre de domaines envoyés |
 | Nom du réseau local (`nas.lan`, `imprimante.local`, `box.home.arpa`, domaine DHCP, recherche inverse d'une adresse privée comme 192.168.x.x) | Toujours envoyé au DNS du réseau, jamais signalé ni compté |
 | Échec DNSSEC (SERVFAIL de votre résolveur) | Reste une erreur : jamais une raison de passer en clair |
