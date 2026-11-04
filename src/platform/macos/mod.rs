@@ -8,7 +8,7 @@ mod session;
 
 use std::process::{Command, Stdio};
 
-pub use dns::{keep_system_dns, set_system_dns};
+pub use dns::{exempt, keep_system_dns, set_system_dns};
 pub use network::{Watch, network};
 pub use service::{install, logs, uninstall};
 pub use session::{notify, open};

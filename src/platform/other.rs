@@ -46,6 +46,11 @@ pub fn keep_system_dns(_config: &Config) -> Result<()> {
     Ok(())
 }
 
+/// Sans objet ici : seul Linux redirige le port 53 et doit laisser passer les requêtes d'abdns.
+pub fn exempt<T>(_socket: &T) -> std::io::Result<()> {
+    Ok(())
+}
+
 pub fn notify(title: &str, body: &str) {
     logbook::log(&format!("notification: {title} — {body}"));
 }

@@ -1,6 +1,6 @@
 # 0004 — Support de Linux par systemd-resolved
 
-Date : 2026-11-02 · Statut : proposé
+Date : 2026-11-02 · Statut : remplacé en partie par [0007](0007-linux-pare-feu-du-noyau.md) (réglage du DNS, lecture du réseau)
 
 ## Contexte
 
