@@ -5,6 +5,7 @@ mod dns;
 mod network;
 mod service;
 mod session;
+mod thin;
 
 use std::process::{Command, Stdio};
 
