@@ -134,6 +134,10 @@ impl Text {
         self.pick("abdns stopped abruptly".into(), "abdns arrêté net".into())
     }
 
+    pub fn hung_title(&self) -> String {
+        self.pick("abdns stopped responding".into(), "abdns ne répondait plus".into())
+    }
+
     pub fn crashed_body(&self) -> String {
         self.pick(
             "Network DNS restored, in clear, until abdns restarts (within seconds).".into(),

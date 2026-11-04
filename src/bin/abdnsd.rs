@@ -1,23 +1,19 @@
 //! abdnsd : le service. Relais DNS local, client DoH, garde et canal de commande.
 
-use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{ChildStdin, Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use abdns::config::{self, Config};
 use abdns::i18n::Text;
-use abdns::{control, guard, logbook, platform, relay, resolver, rt};
+use abdns::watchdog::Watchdog;
+use abdns::{control, guard, logbook, platform, relay, resolver, rt, watchdog};
 use anyhow::{Context, Result, ensure};
 
 const USAGE: &str = "Usage: abdnsd [--config FILE] [--no-system]
   Run the abdns service (as root). The configuration is read again whenever it changes.
   --no-system   leave the system DNS untouched (testing)
 See abdnsd(8) and abdns(1).";
-
-/// Mot écrit au garde-fou avant un arrêt normal.
-const STOPPED: &str = "stopped";
 
 /// Relancé toutes les 5 s par le système après un échec : une notification par heure suffit.
 fn notify_failure(config: &Config, error: &anyhow::Error) {
@@ -28,40 +24,6 @@ fn notify_failure(config: &Config, error: &anyhow::Error) {
         let text = Text(config.language);
         platform::notify(&text.stopped_title(), &text.stopped_body(&format!("{error:#}")));
     }
-}
-
-/// Garde-fou : le même programme, relié par un tube que le noyau ferme quoi qu'il arrive au
-/// service, dans son propre groupe de processus pour que launchd ne l'arrête pas avec lui.
-fn watch_exit(config_path: &Path) -> Option<ChildStdin> {
-    let spawned = std::env::current_exe().and_then(|program| {
-        let mut command = Command::new(program);
-        command.arg("--config").arg(config_path).arg("--after-exit").stdin(Stdio::piped());
-        #[cfg(unix)]
-        std::os::unix::process::CommandExt::process_group(&mut command, 0);
-        command.spawn()
-    });
-    match spawned {
-        Ok(mut child) => child.stdin.take(),
-        Err(error) => {
-            logbook::log(&format!("exit watch unavailable: {error}"));
-            None
-        }
-    }
-}
-
-/// `--after-exit` : tube fermé sans « stopped » (service tué, plantage) : DNS du réseau rendu.
-fn after_exit(config_path: &Path) -> Result<()> {
-    let mut said = String::new();
-    std::io::stdin().read_to_string(&mut said).ok();
-    if said.trim() == STOPPED {
-        return Ok(());
-    }
-    let config = Config::read(config_path)?;
-    platform::set_system_dns(&config, false)?;
-    logbook::log("abdnsd ended abruptly: network DNS restored until it restarts");
-    let text = Text(config.language);
-    platform::notify(&text.crashed_title(), &text.crashed_body());
-    Ok(())
 }
 
 fn run(config_path: &Path, system: bool) -> Result<()> {
@@ -118,8 +80,7 @@ fn run(config_path: &Path, system: bool) -> Result<()> {
     let mut watch = None;
     if system {
         match platform::set_system_dns(&config, true) {
-            Ok(()) if platform::NEEDS_EXIT_WATCH => watch = watch_exit(config_path),
-            Ok(()) => {}
+            Ok(()) => watch = Watchdog::spawn(config_path),
             Err(error) => {
                 logbook::log(&format!("{error:#}"));
                 platform::notify("abdns", &format!("{error:#}"));
@@ -130,13 +91,13 @@ fn run(config_path: &Path, system: bool) -> Result<()> {
     logbook::log(&format!("abdnsd {} ready on {:?}; servers: {}", env!("CARGO_PKG_VERSION"), config.listen, servers.join(", ")));
     let stop = Arc::new(AtomicBool::new(false));
     rt::on_stop(&stop).context("cannot handle stop signals")?;
-    guard::Guard::new(config.clone(), config_path.to_path_buf(), system, shared, signals).run(&stop);
+    guard::Guard::new(config.clone(), config_path.to_path_buf(), system, shared, signals).run(&stop, &mut watch);
     if system {
         // Arrêt voulu : le poste repasse sur le DNS du réseau.
         platform::set_system_dns(&config, false).ok();
     }
-    if let Some(mut watch) = watch {
-        watch.write_all(STOPPED.as_bytes()).ok();
+    if let Some(watch) = watch {
+        watch.stopped();
     }
     std::fs::remove_file(control::socket_path(&config)).ok();
     logbook::log("stopped");
@@ -167,7 +128,7 @@ fn main() -> Result<()> {
         }
     }
     if after {
-        return after_exit(&config_path);
+        return watchdog::run(&config_path);
     }
     run(&config_path, system)
 }

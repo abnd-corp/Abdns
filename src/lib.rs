@@ -14,6 +14,7 @@ pub mod platform;
 pub mod relay;
 pub mod resolver;
 pub mod rt;
+pub mod watchdog;
 
 use std::sync::{Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
