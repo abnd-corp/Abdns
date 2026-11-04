@@ -6,7 +6,8 @@ use std::sync::atomic::AtomicBool;
 
 use abdns::config::{self, Config};
 use abdns::i18n::Text;
-use abdns::{control, guard, logbook, platform, relay, resolver, rt};
+use abdns::watchdog::Watchdog;
+use abdns::{control, guard, logbook, platform, relay, resolver, rt, watchdog};
 use anyhow::{Context, Result, ensure};
 
 const USAGE: &str = "Usage: abdnsd [--config FILE] [--no-system]
@@ -14,7 +15,7 @@ const USAGE: &str = "Usage: abdnsd [--config FILE] [--no-system]
   --no-system   leave the system DNS untouched (testing)
 See abdnsd(8) and abdns(1).";
 
-/// Relancé toutes les 30 s par le système après un échec : une notification par heure suffit.
+/// Relancé toutes les 5 s par le système après un échec : une notification par heure suffit.
 fn notify_failure(config: &Config, error: &anyhow::Error) {
     let marker = config.state_dir.join("failure-notified");
     let recent = std::fs::metadata(&marker).and_then(|m| m.modified()).is_ok_and(|t| t.elapsed().is_ok_and(|e| e.as_secs() < 3600));
@@ -46,6 +47,14 @@ fn run(config_path: &Path, system: bool) -> Result<()> {
     }
     let signals = Arc::new(control::Signals::default());
     let started = resolver::Resolver::new(&config).and_then(|resolver| {
+        let problems = resolver.problems();
+        if !problems.is_empty() {
+            logbook::log(&format!("server set aside: {}", problems.join("; ")));
+            if system {
+                let text = Text(config.language);
+                platform::notify(&text.unusable_title(), &text.unusable_body(&problems.join(" ; ")));
+            }
+        }
         let shared = relay::Shared::new(resolver);
         relay::start(&config.listen, &shared)?;
         // Sans canal de commande, le DNS doit continuer : `abdns status` lit alors le fichier d'état.
@@ -68,18 +77,27 @@ fn run(config_path: &Path, system: bool) -> Result<()> {
     if !guard::wait_encrypted(&shared.resolver(), 15) {
         logbook::log("no encrypted server answers yet: the guard will decide");
     }
-    if system && let Err(error) = platform::set_system_dns(&config, true) {
-        logbook::log(&format!("{error:#}"));
-        platform::notify("abdns", &format!("{error:#}"));
+    let mut watch = None;
+    if system {
+        match platform::set_system_dns(&config, true) {
+            Ok(()) => watch = Watchdog::spawn(config_path),
+            Err(error) => {
+                logbook::log(&format!("{error:#}"));
+                platform::notify("abdns", &format!("{error:#}"));
+            }
+        }
     }
     let servers: Vec<&str> = config.server.iter().map(|s| s.name.as_str()).collect();
     logbook::log(&format!("abdnsd {} ready on {:?}; servers: {}", env!("CARGO_PKG_VERSION"), config.listen, servers.join(", ")));
     let stop = Arc::new(AtomicBool::new(false));
     rt::on_stop(&stop).context("cannot handle stop signals")?;
-    guard::Guard::new(config.clone(), config_path.to_path_buf(), system, shared, signals).run(&stop);
+    guard::Guard::new(config.clone(), config_path.to_path_buf(), system, shared, signals).run(&stop, &mut watch);
     if system {
         // Arrêt voulu : le poste repasse sur le DNS du réseau.
         platform::set_system_dns(&config, false).ok();
+    }
+    if let Some(watch) = watch {
+        watch.stopped();
     }
     std::fs::remove_file(control::socket_path(&config)).ok();
     logbook::log("stopped");
@@ -89,11 +107,13 @@ fn run(config_path: &Path, system: bool) -> Result<()> {
 fn main() -> Result<()> {
     let mut config_path = config::default_path();
     let mut system = true;
+    let mut after = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--config" => config_path = PathBuf::from(args.next().context("--config needs a file")?),
             "--no-system" => system = false,
+            "--after-exit" => after = true,
             "--version" | "-V" => {
                 println!("abdnsd {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
@@ -106,6 +126,9 @@ fn main() -> Result<()> {
                 ensure!(false, "unknown argument: {other}\n{USAGE}");
             }
         }
+    }
+    if after {
+        return watchdog::run(&config_path);
     }
     run(&config_path, system)
 }

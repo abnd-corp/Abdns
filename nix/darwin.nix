@@ -45,7 +45,7 @@ in
       ProgramArguments = [ "${package}/bin/abdnsd" "--config" cfg.configFile ];
       RunAtLoad = true;
       KeepAlive = true;
-      ThrottleInterval = 30;
+      ThrottleInterval = 5;
       StandardOutPath = "${logDir}/abdns.log";
       StandardErrorPath = "${logDir}/abdns.log";
     };

@@ -43,7 +43,7 @@ pub(super) fn unit(program: &Path, config: &Path) -> String {
     format!(
         "[Unit]\nDescription=abdns: encrypted DNS (DoH) for this computer\nDocumentation=https://github.com/abnd-corp/Abdns\n\
 After=network-online.target\nWants=network-online.target\n\n\
-[Service]\nExecStart={start}\nRestart=always\nRestartSec=30\n\n[Install]\nWantedBy=multi-user.target\n"
+[Service]\nExecStart={start}\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n"
     )
 }
 
@@ -103,7 +103,7 @@ mod tests {
     fn systemd_unit() {
         let text = unit(Path::new("/usr/local/bin/abdnsd"), Path::new("/etc/abdns/config.toml"));
         assert!(text.contains("ExecStart=/usr/local/bin/abdnsd --config /etc/abdns/config.toml\n"));
-        assert!(text.contains("Restart=always\nRestartSec=30\n"));
+        assert!(text.contains("Restart=always\nRestartSec=5\n"));
         assert!(
             unit(Path::new("/opt/my abdns/abdnsd"), Path::new("/etc/a%b.toml"))
                 .contains("ExecStart=\"/opt/my abdns/abdnsd\" --config /etc/a%%b.toml\n")

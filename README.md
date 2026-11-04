@@ -213,7 +213,7 @@ Yes. Edit the configuration file: abdns reloads it within 5 seconds and confirms
 Yes. A VPN such as Proton VPN or WireGuard sets its own DNS while connected; abdns is used again as soon as it disconnects.
 
 **What happens if abdns crashes?**
-The system DNS is set back to the network's, and launchd (macOS) or systemd (Linux) restarts abdns within 30 seconds.
+The system DNS is set back to the network's, and launchd (macOS) or systemd (Linux) restarts abdns within 5 seconds.
 
 **Do I need Nix?**
 No. Homebrew, the release archive and `make install` work without it.
@@ -221,7 +221,7 @@ No. Homebrew, the release archive and `make install` work without it.
 ## Limitations
 
 - macOS and Linux for now; Windows is planned (`src/platform/`).
-- Linux: a firewall table sends to abdns every DNS query (port 53) leaving through an Ethernet or Wi-Fi card, including programs that query a server directly; VPNs keep their own DNS, and `resolv.conf` is never changed. The kernel removes the table as soon as abdns stops, even when killed (Linux 5.12 or later; older kernels: until systemd restarts it, within 30 seconds).
+- Linux: a firewall table sends to abdns every DNS query (port 53) leaving through an Ethernet or Wi-Fi card, including programs that query a server directly; VPNs keep their own DNS, and `resolv.conf` is never changed. The kernel removes the table as soon as abdns stops, even when killed (Linux 5.12 or later; older kernels: until systemd restarts it, within 5 seconds).
 - In local mode, answers are not DNSSEC-validated, and a network that deliberately blocks encrypted DNS gets local mode. Notifications make it visible; `local_fallback = false` or `abdns mode encrypted` forbids it.
 - The network DNS is the one announced by the network: the DHCP lease (IPv4) on macOS, `resolv.conf` on Linux.
 - Browsers or apps with their own secure DNS setting, and iCloud Private Relay, bypass the system DNS. Set Firefox and Chrome secure DNS to "system".

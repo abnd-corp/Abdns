@@ -6,7 +6,7 @@ use std::sync::RwLock;
 use std::task::{Context as TaskContext, Poll};
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow, ensure};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use http_body_util::{BodyExt, Full, Limited};
 use hyper::body::Bytes;
 use hyper::header::{ACCEPT, CONTENT_TYPE};
@@ -55,13 +55,23 @@ pub(super) struct Upstream {
     ip: Option<IpAddr>,
     /// Remplacé quand le réseau change : les connexions de l'ancien sont mortes.
     client: RwLock<Https>,
+    /// Jeton illisible, adresse invalide : le serveur reste dans la liste, mis de côté.
+    problem: Option<String>,
 }
 
 impl Upstream {
     pub(super) fn new(server: &config::Server) -> Result<Self> {
-        let url = server.full_url()?.parse().with_context(|| format!("{}: invalid url", server.name))?;
         let client = RwLock::new(client(&server.name, server.ip)?);
-        Ok(Self { name: server.name.clone(), url, ip: server.ip, client })
+        let url = server.full_url().and_then(|url| url.parse::<Uri>().with_context(|| format!("{}: invalid url", server.name)));
+        let (url, problem) = match url {
+            Ok(url) => (url, None),
+            Err(error) => (Uri::from_static("https://invalid./"), Some(format!("{error:#}"))),
+        };
+        Ok(Self { name: server.name.clone(), url, ip: server.ip, client, problem })
+    }
+
+    pub(super) fn problem(&self) -> Option<&str> {
+        self.problem.as_deref()
     }
 
     /// Connexions neuves pour les requêtes suivantes ; celles en cours finissent sur l'ancien.
@@ -72,6 +82,9 @@ impl Upstream {
     }
 
     pub(super) async fn exchange(&self, query: &[u8]) -> Result<Vec<u8>> {
+        if let Some(problem) = &self.problem {
+            bail!("{problem}");
+        }
         // Identifiant 0 (RFC 8484, §4.1) : mieux mis en cache par les serveurs.
         let mut body = query.to_vec();
         body[..2].fill(0);

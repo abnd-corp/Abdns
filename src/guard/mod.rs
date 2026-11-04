@@ -31,6 +31,7 @@ use crate::i18n::Text;
 use crate::platform::{self, Network};
 use crate::relay::Shared;
 use crate::resolver::Resolver;
+use crate::watchdog::Watchdog;
 use crate::{logbook, write};
 
 use notice::Limiter;
@@ -342,9 +343,17 @@ impl Guard {
         platform::open(PORTAL_PROBE);
     }
 
-    pub fn run(mut self, stop: &AtomicBool) {
+    /// Un tour par seconde ; chaque tour terminé fait battre le garde-fou.
+    pub fn run(mut self, stop: &AtomicBool, watchdog: &mut Option<Watchdog>) {
         while !stop.load(Ordering::SeqCst) {
-            self.tick(logbook::now());
+            let now = logbook::now();
+            self.tick(now);
+            if let Some(dog) = watchdog.as_mut()
+                && let Err(error) = dog.beat(now)
+            {
+                logbook::log(&format!("watchdog gone: {error}"));
+                *watchdog = None;
+            }
             thread::sleep(Duration::from_secs(1));
         }
         let now = logbook::now();

@@ -204,7 +204,7 @@ Oui. Modifiez le fichier de configuration : abdns le relit en moins de 5 seconde
 Oui. Un VPN comme Proton VPN ou WireGuard impose son propre DNS tant qu'il est connecté ; abdns reprend dès la déconnexion.
 
 **Que se passe-t-il si abdns plante ?**
-Le DNS du poste est remis sur celui du réseau, et launchd (macOS) ou systemd (Linux) relance abdns en moins de 30 secondes.
+Le DNS du poste est remis sur celui du réseau, et launchd (macOS) ou systemd (Linux) relance abdns en moins de 5 secondes.
 
 **Faut-il Nix ?**
 Non. Homebrew, l'archive d'une version et `make install` fonctionnent sans.
@@ -212,7 +212,7 @@ Non. Homebrew, l'archive d'une version et `make install` fonctionnent sans.
 ## Limites
 
 - macOS et Linux pour l'instant ; Windows est prévu (`src/platform/`).
-- Linux : une table du pare-feu envoie à abdns toute requête DNS (port 53) qui sort par une carte Ethernet ou Wi-Fi, y compris celle d'un programme qui interroge un serveur directement ; les VPN gardent leur DNS, et `resolv.conf` n'est jamais modifié. Le noyau retire la table dès qu'abdns s'arrête, même tué net (Linux 5.12 ou plus ; noyau plus ancien : jusqu'à ce que systemd le relance, en moins de 30 secondes).
+- Linux : une table du pare-feu envoie à abdns toute requête DNS (port 53) qui sort par une carte Ethernet ou Wi-Fi, y compris celle d'un programme qui interroge un serveur directement ; les VPN gardent leur DNS, et `resolv.conf` n'est jamais modifié. Le noyau retire la table dès qu'abdns s'arrête, même tué net (Linux 5.12 ou plus ; noyau plus ancien : jusqu'à ce que systemd le relance, en moins de 5 secondes).
 - En mode local, les réponses ne sont pas vérifiées par DNSSEC, et un réseau qui bloque exprès le DNS chiffré obtient le mode local. Les notifications le montrent ; `local_fallback = false` ou `abdns mode encrypted` l'interdisent.
 - Le DNS du réseau est celui que le réseau annonce : le bail DHCP (IPv4) sous macOS, `resolv.conf` sous Linux.
 - Les navigateurs ou applications réglés sur leur propre DNS sécurisé, et le Relais privé iCloud, contournent le DNS du système. Régler le DNS sécurisé de Firefox et Chrome sur « système ».
