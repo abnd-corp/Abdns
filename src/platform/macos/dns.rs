@@ -42,3 +42,8 @@ pub fn set_system_dns(config: &Config, relay: bool) -> Result<()> {
     ensure!(failures.is_empty(), "DNS not set for: {}", failures.join(", "));
     Ok(())
 }
+
+/// Sans objet ici : seul Linux redirige le port 53 et doit laisser passer les requêtes d'abdns.
+pub fn exempt<T>(_socket: &T) -> std::io::Result<()> {
+    Ok(())
+}

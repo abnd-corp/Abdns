@@ -18,7 +18,7 @@ Toutes les dépendances sont prises sans leurs options par défaut : seul le né
 
 Outils système macOS appelés : `route`, `ipconfig`, `networksetup`, `osascript`, `launchctl`, `stat`, `open`. Changements de réseau : notify(3) de libSystem (`kNotifySCNetworkChange`), sans dépendance ; `route`, `ipconfig` et `networksetup` ne tournent qu'à un changement, ou toutes les 60 s par sécurité.
 
-Outils système Linux appelés : `ip`, `resolvectl` (systemd-resolved), `nmcli` (NetworkManager, facultatif), `systemctl`, `loginctl`, `runuser`, `journalctl`, `notify-send` (libnotify), `xdg-open` (xdg-utils). Changements de réseau : socket netlink du noyau (liens, adresses, routes), par libc ; `ip` et `nmcli` ne tournent qu'à un changement, ou toutes les 60 s par sécurité. `resolvectl dns` garde son contrôle toutes les 5 s : netlink ne voit pas NetworkManager défaire le réglage ([ADR 0004](adr/0004-support-linux.md)).
+Linux, par le noyau seul (libc) : changements de réseau par netlink (liens, adresses, routes) ; route par défaut dans `/proc/net/route` et `/proc/net/ipv6_route` ; DNS du réseau dans `resolv.conf` ; DNS du poste par une table du pare-feu nf_tables, parlée par netlink et retirée par le noyau avec le processus ([ADR 0007](adr/0007-linux-pare-feu-du-noyau.md)). Outils appelés : `systemctl`, `loginctl`, `runuser`, `journalctl` (systemd), `notify-send` et `xdg-open` pour la session de l'utilisateur.
 
 Outils de publication : `lipo` (binaire macOS universel), `gh` (versions GitHub), Homebrew (`packaging/homebrew/abdns.rb`), `installShellFiles` (Nix).
 
@@ -41,6 +41,6 @@ src/
   guard/              la garde : chiffré ou en clair (mod), réseau, notifications, sondes, relecture
   platform/           mod.rs (interface), other.rs (Windows, à venir)
     macos/            réseau, DNS du poste, session de l'utilisateur, service launchd
-    linux/            réseau, DNS du poste (resolved), session graphique, service systemd
+    linux/            réseau (/proc, resolv.conf), DNS du poste (pare-feu nf_tables), session graphique, service systemd
 ```
 

@@ -101,7 +101,7 @@ sudo make install         # programmes, pages de manuel, service launchd
 
 ### Linux
 
-Linux demande systemd et systemd-resolved (`resolvectl`). NetworkManager (`nmcli`) est facultatif mais conseillé : abdns lit le DNS du réseau dans son bail DHCP et le lui rend quand il s'arrête.
+Linux ne demande que systemd (service et notifications) : abdns parle lui-même au noyau (netlink, pare-feu) et lit `resolv.conf`, sans systemd-resolved, NetworkManager ni iproute2.
 
 ```sh
 make release
@@ -212,9 +212,9 @@ Non. Homebrew, l'archive d'une version et `make install` fonctionnent sans.
 ## Limites
 
 - macOS et Linux pour l'instant ; Windows est prévu (`src/platform/`).
-- Linux : systemd-resolved est nécessaire. abdns prend en charge les interfaces physiques (Ethernet, Wi-Fi) par lesquelles le poste sort, pas les VPN, ponts ni conteneurs, qui gardent leur DNS. Si autre chose change ce réglage, abdns le refait en moins de 5 secondes. Si abdns est tué sans préavis (SIGKILL), le système reste réglé sur lui jusqu'à ce que systemd le relance, en moins de 30 secondes.
+- Linux : une table du pare-feu envoie à abdns toute requête DNS (port 53) qui sort par une carte Ethernet ou Wi-Fi, y compris celle d'un programme qui interroge un serveur directement ; les VPN gardent leur DNS, et `resolv.conf` n'est jamais modifié. Le noyau retire la table dès qu'abdns s'arrête, même tué net (Linux 5.12 ou plus ; noyau plus ancien : jusqu'à ce que systemd le relance, en moins de 30 secondes).
 - En mode local, les réponses ne sont pas vérifiées par DNSSEC, et un réseau qui bloque exprès le DNS chiffré obtient le mode local. Les notifications le montrent ; `local_fallback = false` ou `abdns mode encrypted` l'interdisent.
-- Le DNS du réseau est celui du bail DHCP (IPv4).
+- Le DNS du réseau est celui que le réseau annonce : le bail DHCP (IPv4) sous macOS, `resolv.conf` sous Linux.
 - Les navigateurs ou applications réglés sur leur propre DNS sécurisé, et le Relais privé iCloud, contournent le DNS du système. Régler le DNS sécurisé de Firefox et Chrome sur « système ».
 
 ## Développement

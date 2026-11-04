@@ -42,7 +42,7 @@ pub(super) fn unit(program: &Path, config: &Path) -> String {
     let start = [program.to_string_lossy(), "--config".into(), config.to_string_lossy()].map(|a| unit_quote(&a)).join(" ");
     format!(
         "[Unit]\nDescription=abdns: encrypted DNS (DoH) for this computer\nDocumentation=https://github.com/abnd-corp/Abdns\n\
-After=network-online.target systemd-resolved.service NetworkManager.service\nWants=network-online.target\n\n\
+After=network-online.target\nWants=network-online.target\n\n\
 [Service]\nExecStart={start}\nRestart=always\nRestartSec=30\n\n[Install]\nWantedBy=multi-user.target\n"
     )
 }

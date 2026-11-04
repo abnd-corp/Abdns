@@ -15,7 +15,10 @@ make check                      # tout
 cargo test --test cli           # l'outil abdns (rapide)
 cargo test --test service       # abdnsd de bout en bout (~30 s : 15 s d'attente de démarrage)
 cargo test relay::              # le relais
+sudo cargo test --lib -- --ignored netfilter   # Linux, root : la table du pare-feu sur le vrai noyau
 ```
+
+Le test `netfilter` est le seul qui demande root : il pose la table `abdns` sur le vrai noyau, vérifie qu'une autre socket ne peut pas la retirer et que le noyau la retire avec la socket qui l'a créée. La CI le lance sous Linux (`sudo` comme lanceur des tests).
 
 Les tests d'intégration sont réservés aux systèmes Unix (socket de commande, `kill`) ; ils lancent les programmes avec `PATH` vidé : aucune commande système (réseau, notification) n'est appelée, le résultat ne dépend pas du poste. Le serveur DoH de test est un port fermé.
 

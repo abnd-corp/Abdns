@@ -11,11 +11,11 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, ensure};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
 use tokio::time::timeout;
 
 use crate::resolver::Resolver;
-use crate::{dns, lock, read, rt};
+use crate::{dns, lock, platform, read, rt};
 
 /// Requêtes ou connexions traitées en même temps ; au-delà, les nouvelles sont ignorées
 /// (le client réessaie).
@@ -126,6 +126,7 @@ async fn exchange_async(server: SocketAddr, query: &[u8], tcp: bool, limit: Dura
 async fn exchange_udp(server: SocketAddr, query: &[u8]) -> Result<Vec<u8>> {
     let local: SocketAddr = if server.is_ipv4() { ([0, 0, 0, 0], 0).into() } else { ([0u16; 8], 0).into() };
     let socket = UdpSocket::bind(local).await?;
+    platform::exempt(&socket)?;
     socket.connect(server).await?;
     socket.send(query).await?;
     let mut buf = vec![0; 65_535];
@@ -155,7 +156,9 @@ async fn write_frame(stream: &mut TcpStream, msg: &[u8]) -> std::io::Result<()> 
 }
 
 async fn exchange_tcp(server: SocketAddr, query: &[u8]) -> Result<Vec<u8>> {
-    let mut stream = TcpStream::connect(server).await?;
+    let socket = if server.is_ipv4() { TcpSocket::new_v4()? } else { TcpSocket::new_v6()? };
+    platform::exempt(&socket)?;
+    let mut stream = socket.connect(server).await?;
     write_frame(&mut stream, query).await?;
     let reply = read_frame(&mut stream).await?;
     ensure!(dns::id(&reply) == dns::id(query), "{server}: unexpected id");

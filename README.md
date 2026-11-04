@@ -101,7 +101,7 @@ sudo make install         # binaries, manual pages, launchd service
 
 ### Linux
 
-Linux needs systemd and systemd-resolved (`resolvectl`). NetworkManager (`nmcli`) is optional but recommended: abdns reads the network's DNS from its DHCP lease and gives it back when it stops.
+Linux needs nothing but systemd (service and notifications): abdns talks to the kernel itself (netlink, firewall) and reads `resolv.conf`, without systemd-resolved, NetworkManager or iproute2.
 
 ```sh
 make release
@@ -221,9 +221,9 @@ No. Homebrew, the release archive and `make install` work without it.
 ## Limitations
 
 - macOS and Linux for now; Windows is planned (`src/platform/`).
-- Linux: systemd-resolved is required. abdns takes over the physical interfaces (Ethernet, Wi-Fi) the computer goes out by, not VPNs, bridges or containers, which keep their own DNS. If something else changes that setting, abdns sets it again within 5 seconds. If abdns is killed without warning (SIGKILL), the system keeps pointing to it until systemd restarts it, within 30 seconds.
+- Linux: a firewall table sends to abdns every DNS query (port 53) leaving through an Ethernet or Wi-Fi card, including programs that query a server directly; VPNs keep their own DNS, and `resolv.conf` is never changed. The kernel removes the table as soon as abdns stops, even when killed (Linux 5.12 or later; older kernels: until systemd restarts it, within 30 seconds).
 - In local mode, answers are not DNSSEC-validated, and a network that deliberately blocks encrypted DNS gets local mode. Notifications make it visible; `local_fallback = false` or `abdns mode encrypted` forbids it.
-- The network DNS is the one of the DHCP lease (IPv4).
+- The network DNS is the one announced by the network: the DHCP lease (IPv4) on macOS, `resolv.conf` on Linux.
 - Browsers or apps with their own secure DNS setting, and iCloud Private Relay, bypass the system DNS. Set Firefox and Chrome secure DNS to "system".
 
 ## Compared with
