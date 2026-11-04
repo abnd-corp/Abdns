@@ -53,6 +53,16 @@ pub fn install(config: &Path) -> Result<()> {
     let program = std::env::current_exe()?.canonicalize()?.with_file_name("abdnsd");
     ensure!(program.exists(), "{} not found next to abdns", program.display());
     let config = config.canonicalize().with_context(|| format!("{} not found", config.display()))?;
+    // Archive universelle : chaque programme réduit à l'architecture de ce Mac.
+    for path in [std::env::current_exe()?.canonicalize()?, program.clone()] {
+        match super::thin::thin(&path) {
+            Ok(Some((before, after))) => {
+                println!("{}: universal binary reduced to this Mac ({} -> {} KiB)", path.display(), before / 1024, after / 1024);
+            }
+            Ok(None) => {}
+            Err(error) => println!("{}: not reduced ({error})", path.display()),
+        }
+    }
     std::fs::create_dir_all(LOG_DIR)?;
     std::fs::write(PLIST, plist(&program, &config)).with_context(|| format!("cannot write {PLIST} (run with sudo)"))?;
     // Rotation à 1 Mio, 3 générations compressées.
