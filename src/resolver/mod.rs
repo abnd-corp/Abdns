@@ -53,6 +53,11 @@ impl Resolver {
         self.upstreams.get(index).map_or("?", |u| u.name.as_str())
     }
 
+    /// Nouveau réseau : connexions neuves vers chaque serveur, cache gardé.
+    pub fn reconnect(&self) {
+        self.upstreams.iter().for_each(Upstream::reconnect);
+    }
+
     /// Serveur qui a répondu en dernier.
     pub fn active(&self) -> Option<usize> {
         Some(self.last.load(Ordering::Relaxed)).filter(|&i| i != NONE)

@@ -3,7 +3,9 @@
 //!
 //! Bascule en clair seulement si tous les serveurs chiffrés échouent deux fois de suite alors
 //! que le DNS du réseau répond : c'est la signature d'un portail ou d'un réseau qui bloque le
-//! DNS chiffré. Retour au chiffré dès qu'il répond de nouveau.
+//! DNS chiffré. Sur un nouveau réseau, le portail est cherché pendant le premier contrôle :
+//! trouvé, il suffit d'un échec. Retour au chiffré dès qu'il répond de nouveau. Sans réseau,
+//! aucun contrôle.
 //!
 //! Notifications limitées : un changement de mode à la fois, les nouveaux domaines en clair au
 //! plus toutes les 5 min, un rappel toutes les 30 min, au plus 6 notifications par 10 min.
@@ -16,8 +18,8 @@ mod reload;
 use std::collections::BTreeSet;
 use std::net::IpAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, SystemTime};
 
@@ -50,6 +52,8 @@ const NAMES_EVERY: u64 = 300;
 const PORTAL_EVERY: u64 = 60;
 const REMINDER_EVERY: u64 = 30 * 60;
 const FAILURES_BEFORE_LOCAL: u32 = 2;
+/// Écart entre deux tours de la garde au-delà duquel le poste sortait de veille.
+const WAKE_GAP: u64 = 30;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Force {
@@ -94,6 +98,11 @@ pub struct Guard {
     shared: Arc<Shared>,
     text: Text,
     network: Option<Network>,
+    /// Dernier réseau connu : une courte coupure du même réseau garde les connexions.
+    last_key: Option<String>,
+    /// Réseau arrivé depuis le dernier contrôle : le portail est cherché en même temps.
+    fresh: bool,
+    last_tick: u64,
     watch: Option<platform::Watch>,
     local: bool,
     failures: u32,
@@ -125,6 +134,9 @@ impl Guard {
             shared,
             text,
             network: None,
+            last_key: None,
+            fresh: false,
+            last_tick: logbook::now(),
             watch: platform::Watch::new(),
             local: false,
             failures: 0,
@@ -185,7 +197,23 @@ impl Guard {
     fn check(&mut self, now: u64) {
         let force = self.force();
         let resolver = self.shared.resolver();
+        // Sans réseau, rien à contrôler : l'état est seulement écrit, son retour relance le contrôle.
+        if self.network.is_none() && platform::SEES_NETWORK {
+            self.next_check = now + CHECK_EVERY;
+            self.write_state(force, None, &resolver);
+            return;
+        }
+        let dns = self.network_dns();
+        let look_for_portal = std::mem::take(&mut self.fresh) && force == Force::Auto && !self.local && !dns.is_empty();
+        let portal = look_for_portal.then(|| {
+            let (found, result) = mpsc::channel();
+            let dns = dns.clone();
+            thread::spawn(move || found.send(portal(&dns)).ok());
+            result
+        });
         let answering = resolver.probe(&probe_name());
+        // Un serveur chiffré répond : inutile d'attendre la recherche du portail.
+        let portal_found = answering.is_none() && portal.is_some_and(|result| result.recv().unwrap_or(false));
         self.follow_servers(now, answering, &resolver);
         let has_network_dns = !self.network_dns().is_empty();
         match force {
@@ -202,13 +230,16 @@ impl Guard {
                 if !self.local {
                     logbook::log(&format!("encrypted DNS silent ({} in a row) on {}", self.failures, self.network_label()));
                 }
-                if self.failures >= FAILURES_BEFORE_LOCAL && !self.local {
+                if (self.failures >= FAILURES_BEFORE_LOCAL || portal_found) && !self.local {
                     if !self.config.local_fallback {
                         if !self.local_disabled_notified {
                             self.local_disabled_notified = true;
                             let body = self.text.local_disabled_body(&self.network_label());
                             self.notify(now, &self.text.no_encrypted(), &body);
                         }
+                    } else if portal_found {
+                        self.go_local(now, &self.text.no_encrypted());
+                        self.open_portal(now);
                     } else if has_network_dns && sockets(&self.network_dns()).into_iter().any(|s| answers(s, Duration::from_secs(2))) {
                         self.go_local(now, &self.text.no_encrypted());
                     } else if has_network_dns {
@@ -253,6 +284,13 @@ impl Guard {
     }
 
     fn tick(&mut self, now: u64) {
+        // Sortie de veille : les connexions d'avant sont mortes, et le réseau a pu changer.
+        if now.saturating_sub(self.last_tick) > WAKE_GAP {
+            self.shared.resolver().reconnect();
+            self.next_network = now;
+            self.next_check = now;
+        }
+        self.last_tick = now;
         // `abdns reload` : relecture même si la date du fichier n'a pas changé.
         if self.signals.reload.swap(false, Ordering::SeqCst) {
             self.config_stamp = None;
@@ -287,9 +325,7 @@ impl Guard {
         if now >= self.next_portal && self.portal_opened != key {
             self.next_portal = now + PORTAL_EVERY;
             if portal(&self.network_dns()) {
-                self.portal_opened = key;
-                self.notify(now, &self.text.portal_title(), &self.text.portal_body());
-                platform::open(PORTAL_PROBE);
+                self.open_portal(now);
             }
         }
         if now >= self.next_reminder {
@@ -298,6 +334,12 @@ impl Guard {
             let body = self.text.still_clear_body(minutes, &self.network_label());
             self.notify(now, &self.text.still_clear_title(), &body);
         }
+    }
+
+    fn open_portal(&mut self, now: u64) {
+        self.portal_opened = self.network.as_ref().map(Network::key);
+        self.notify(now, &self.text.portal_title(), &self.text.portal_body());
+        platform::open(PORTAL_PROBE);
     }
 
     pub fn run(mut self, stop: &AtomicBool) {

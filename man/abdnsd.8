@@ -21,7 +21,9 @@ never reported.
 When every server fails twice in a row while the network DNS answers \(em a captive portal, or a
 network blocking encrypted DNS \(em and \fBlocal_fallback\fR is true, abdnsd uses the network
 DNS, opens the portal sign-in page if there is one, reports the names sent in clear, and switches
-back as soon as an encrypted server answers. A DNSSEC failure never triggers this switch.
+back as soon as an encrypted server answers. On a new network, the portal is looked for during
+the first check: once it is found, one failure of every server is enough. A DNSSEC failure never
+triggers this switch. Without a network, servers are not checked.
 .PP
 The configuration file is read again whenever it changes; an invalid file is reported and the
 previous configuration stays in use. When abdnsd stops or crashes, the system DNS is set back to

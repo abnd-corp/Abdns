@@ -19,6 +19,9 @@ mod other;
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub use other::*;
 
+/// Faux là où le réseau n'est pas encore lu (`network()` rend toujours `None`).
+pub const SEES_NETWORK: bool = cfg!(any(target_os = "macos", target_os = "linux"));
+
 /// Réseau par lequel sort le poste.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Network {

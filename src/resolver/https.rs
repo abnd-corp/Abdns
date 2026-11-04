@@ -2,6 +2,7 @@
 //! sur le runtime d'`rt`, une connexion partagée par toutes les requêtes en cours.
 
 use std::net::{IpAddr, SocketAddr};
+use std::sync::RwLock;
 use std::task::{Context as TaskContext, Poll};
 use std::time::Duration;
 
@@ -16,7 +17,7 @@ use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::connect::dns::Name;
 use hyper_util::rt::{TokioExecutor, TokioTimer};
 
-use crate::config;
+use crate::{config, read, write};
 
 const MEDIA_TYPE: &str = "application/dns-message";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
@@ -51,13 +52,23 @@ impl tower_service::Service<Name> for Fixed {
 pub(super) struct Upstream {
     pub(super) name: String,
     url: Uri,
-    client: Https,
+    ip: Option<IpAddr>,
+    /// Remplacé quand le réseau change : les connexions de l'ancien sont mortes.
+    client: RwLock<Https>,
 }
 
 impl Upstream {
     pub(super) fn new(server: &config::Server) -> Result<Self> {
         let url = server.full_url()?.parse().with_context(|| format!("{}: invalid url", server.name))?;
-        Ok(Self { name: server.name.clone(), url, client: client(server)? })
+        let client = RwLock::new(client(&server.name, server.ip)?);
+        Ok(Self { name: server.name.clone(), url, ip: server.ip, client })
+    }
+
+    /// Connexions neuves pour les requêtes suivantes ; celles en cours finissent sur l'ancien.
+    pub(super) fn reconnect(&self) {
+        if let Ok(client) = client(&self.name, self.ip) {
+            *write(&self.client) = client;
+        }
     }
 
     pub(super) async fn exchange(&self, query: &[u8]) -> Result<Vec<u8>> {
@@ -70,8 +81,9 @@ impl Upstream {
             .body(Full::new(Bytes::from(body)))
             .context("invalid request")?;
         // Les erreurs de hyper ne citent jamais l'adresse : le chemin secret reste hors du journal.
+        let client = read(&self.client).clone();
         let reply = tokio::time::timeout(REQUEST_TIMEOUT, async {
-            let response = self.client.request(request).await?;
+            let response = client.request(request).await?;
             ensure!(response.status().is_success(), "HTTP {}", response.status().as_u16());
             let body = Limited::new(response.into_body(), MAX_ANSWER).collect().await.map_err(|e| anyhow!("{e}"))?;
             Ok(body.to_bytes().to_vec())
@@ -83,8 +95,8 @@ impl Upstream {
     }
 }
 
-fn client(server: &config::Server) -> Result<Https> {
-    let mut http = HttpConnector::new_with_resolver(Fixed(server.ip));
+fn client(name: &str, ip: Option<IpAddr>) -> Result<Https> {
+    let mut http = HttpConnector::new_with_resolver(Fixed(ip));
     http.enforce_http(false);
     http.set_connect_timeout(Some(CONNECT_TIMEOUT));
     http.set_keepalive(Some(Duration::from_secs(30)));
@@ -93,7 +105,7 @@ fn client(server: &config::Server) -> Result<Https> {
     // vérifiés par le système (trousseau, magasin de Windows, certificats de la distribution).
     let https = hyper_rustls::HttpsConnectorBuilder::new()
         .with_provider_and_platform_verifier(rustls::crypto::ring::default_provider())
-        .with_context(|| format!("{}: cannot build the TLS client", server.name))?
+        .with_context(|| format!("{name}: cannot build the TLS client"))?
         .https_only()
         .enable_all_versions()
         .wrap_connector(http);
