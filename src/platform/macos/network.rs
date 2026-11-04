@@ -56,21 +56,21 @@ impl Watch {
 
     fn named(name: &CStr) -> Option<Self> {
         let mut token = 0;
-        // SAFETY : nom terminé par un zéro, jeton écrit par la fonction.
+        // SAFETY: nom terminé par un zéro, jeton écrit par la fonction.
         (unsafe { notify_register_check(name.as_ptr(), &raw mut token) } == 0).then_some(Self(token))
     }
 
     /// Vrai si le réseau a changé depuis le dernier appel (toujours vrai au premier).
     pub fn changed(&mut self) -> bool {
         let mut check = 0;
-        // SAFETY : jeton rendu par notify_register_check, encore valide.
+        // SAFETY: jeton rendu par notify_register_check, encore valide.
         unsafe { notify_check(self.0, &raw mut check) == 0 && check != 0 }
     }
 }
 
 impl Drop for Watch {
     fn drop(&mut self) {
-        // SAFETY : jeton rendu par notify_register_check, annulé une seule fois.
+        // SAFETY: jeton rendu par notify_register_check, annulé une seule fois.
         unsafe { notify_cancel(self.0) };
     }
 }
@@ -113,7 +113,7 @@ mod tests {
         let mut watch = Watch::named(name).expect("notify registration");
         watch.changed();
         assert!(!watch.changed(), "nothing posted yet");
-        // SAFETY : nom terminé par un zéro ; nom propre à ce test, sans effet sur le système.
+        // SAFETY: nom terminé par un zéro ; nom propre à ce test, sans effet sur le système.
         assert_eq!(unsafe { notify_post(name.as_ptr()) }, 0);
         // Remise asynchrone par notifyd : quelques millisecondes.
         let seen = (0..200).any(|_| {

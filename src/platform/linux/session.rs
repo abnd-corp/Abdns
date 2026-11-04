@@ -23,7 +23,7 @@ pub(super) fn graphical_session(sessions: &str, show: impl Fn(&str) -> Option<St
 }
 
 pub(super) fn is_root() -> bool {
-    // SAFETY : sans argument ni effet.
+    // SAFETY: sans argument ni effet.
     unsafe { libc::geteuid() == 0 }
 }
 
