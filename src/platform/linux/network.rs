@@ -144,7 +144,7 @@ pub struct Watch(OwnedFd);
 
 impl Watch {
     pub fn new() -> Option<Self> {
-        // SAFETY : appels système sur un descripteur que nous possédons, adresse initialisée.
+        // SAFETY: appels système sur un descripteur que nous possédons, adresse initialisée.
         unsafe {
             let fd = libc::socket(libc::AF_NETLINK, libc::SOCK_RAW | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC, libc::NETLINK_ROUTE);
             if fd < 0 {
@@ -168,7 +168,7 @@ impl Watch {
         let mut any = false;
         let mut buf = [0u8; 8192];
         loop {
-            // SAFETY : tampon valide de la taille donnée, descripteur non bloquant.
+            // SAFETY: tampon valide de la taille donnée, descripteur non bloquant.
             let n = unsafe { libc::recv(self.0.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len(), 0) };
             match n {
                 1.. => any = true,

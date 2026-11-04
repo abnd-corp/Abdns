@@ -259,17 +259,17 @@ pub(super) struct Netfilter(OwnedFd);
 
 impl Netfilter {
     pub(super) fn open() -> io::Result<Self> {
-        // SAFETY : appel système sans pointeur ; le descripteur rendu n'appartient qu'à nous.
+        // SAFETY: appel système sans pointeur ; le descripteur rendu n'appartient qu'à nous.
         let fd = unsafe { libc::socket(libc::AF_NETLINK, libc::SOCK_RAW | libc::SOCK_CLOEXEC, libc::NETLINK_NETFILTER) };
         if fd < 0 {
             return Err(io::Error::last_os_error());
         }
-        // SAFETY : descripteur valide, ouvert ci-dessus et confié à OwnedFd seul.
+        // SAFETY: descripteur valide, ouvert ci-dessus et confié à OwnedFd seul.
         let socket = Self(unsafe { OwnedFd::from_raw_fd(fd) });
         // Le noyau répond toujours ; le délai évite seulement d'attendre sans fin.
         let timeout = libc::timeval { tv_sec: 2, tv_usec: 0 };
         let size = std::mem::size_of::<libc::timeval>() as libc::socklen_t;
-        // SAFETY : `timeout` vit pendant l'appel et `size` est sa taille.
+        // SAFETY: `timeout` vit pendant l'appel et `size` est sa taille.
         let set = unsafe { libc::setsockopt(socket.0.as_raw_fd(), libc::SOL_SOCKET, libc::SO_RCVTIMEO, (&raw const timeout).cast(), size) };
         if set != 0 {
             return Err(io::Error::last_os_error());
@@ -278,17 +278,17 @@ impl Netfilter {
     }
 
     fn send(&self, data: &[u8]) -> io::Result<()> {
-        // SAFETY : structure C sans invariant, tout à zéro : l'adresse du noyau.
+        // SAFETY: structure C sans invariant, tout à zéro : l'adresse du noyau.
         let mut kernel: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
         kernel.nl_family = libc::AF_NETLINK as libc::sa_family_t;
         let size = std::mem::size_of::<libc::sockaddr_nl>() as libc::socklen_t;
-        // SAFETY : tampon et adresse valides pendant l'appel, tailles exactes.
+        // SAFETY: tampon et adresse valides pendant l'appel, tailles exactes.
         let sent = unsafe { libc::sendto(self.0.as_raw_fd(), data.as_ptr().cast(), data.len(), 0, (&raw const kernel).cast(), size) };
         if usize::try_from(sent).is_ok_and(|n| n == data.len()) { Ok(()) } else { Err(io::Error::last_os_error()) }
     }
 
     fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
-        // SAFETY : tampon valide de la taille donnée.
+        // SAFETY: tampon valide de la taille donnée.
         let n = unsafe { libc::recv(self.0.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len(), 0) };
         usize::try_from(n).map_err(|_| io::Error::last_os_error())
     }

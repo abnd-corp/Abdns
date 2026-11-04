@@ -66,7 +66,7 @@ pub fn keep_system_dns(config: &Config) -> Result<()> {
 pub fn exempt(socket: &impl AsFd) -> io::Result<()> {
     let mark = MARK;
     let size = std::mem::size_of::<u32>() as libc::socklen_t;
-    // SAFETY : descripteur emprunté, vivant pendant l'appel ; valeur de la taille indiquée.
+    // SAFETY: descripteur emprunté, vivant pendant l'appel ; valeur de la taille indiquée.
     let set = unsafe { libc::setsockopt(socket.as_fd().as_raw_fd(), libc::SOL_SOCKET, libc::SO_MARK, (&raw const mark).cast(), size) };
     let error = io::Error::last_os_error();
     if set == 0 || !REDIRECTING.load(Ordering::SeqCst) { Ok(()) } else { Err(error) }
