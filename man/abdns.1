@@ -18,8 +18,10 @@ network's DNS only as a last resort, for example to sign in to a captive portal.
 .SH COMMANDS
 .TP
 .B status
-Mode (encrypted or network DNS), servers and which one answers, network, names sent in clear.
-Readable by every user.
+Mode (encrypted or network DNS), servers and which one answers, network, names sent in clear,
+and the latest alerts since abdnsd started (sent, held back or with notifications turned off;
+\fB\-\-json\fR gives the last ten). Readable by every user. Works even while the configuration
+file is invalid: abdnsd keeps the previous one, and the error is shown first.
 .TP
 .B test
 Query every server now and print its response time. Exits with status 1 if one fails.
@@ -33,7 +35,11 @@ Read the configuration file again now. abdnsd also notices changes by itself wit
 Administrators only.
 .TP
 .B check
-Validate the configuration file and list the servers in order, like \fBsshd \-t\fR.
+Review the setup, like \fBsshd \-t\fR and more: the configuration file, each server in order
+(encrypted, token present and valid), local fallback, notifications, listening addresses and
+whether abdnsd is running. Points to look at, such as a configuration file other users can change
+or a token file they can read, are listed without failing. Fails if the file is invalid or a
+server cannot be used (missing or invalid token).
 .TP
 .BR logs " [" \-f "] [" \-n
 .IR lines ]

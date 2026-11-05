@@ -183,9 +183,9 @@ Google and Cloudflare are only well-known examples. Privacy-respecting fallbacks
 ## Usage
 
 ```sh
-abdns status                  # mode, servers (● answering), network, names sent in clear
+abdns status                  # mode, servers (● answering), network, names sent in clear, latest alerts
 abdns test                    # query every server now, with its response time
-abdns check                   # validate the configuration file, like sshd -t
+abdns check                   # review: configuration, servers, tokens, file permissions, service
 abdns mode local              # force the network DNS (stubborn captive portal)
 abdns mode encrypted          # forbid the network DNS
 abdns mode auto               # back to automatic

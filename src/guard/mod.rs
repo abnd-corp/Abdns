@@ -15,7 +15,7 @@ mod notice;
 mod probe;
 mod reload;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -34,7 +34,7 @@ use crate::resolver::Resolver;
 use crate::watchdog::Watchdog;
 use crate::{logbook, write};
 
-use notice::Limiter;
+use notice::{Alert, Limiter};
 pub use probe::probe_name;
 use probe::{PORTAL_PROBE, answers, portal, sockets};
 use reload::stamp;
@@ -90,6 +90,12 @@ pub fn state_file(config: &Config) -> PathBuf {
     config.state_dir.join("status.json")
 }
 
+/// Laissé par le garde-fou quand abdnsd a été tué ou s'est bloqué : montré par `abdns status`
+/// après la relance.
+pub fn ended_file(config: &Config) -> PathBuf {
+    config.state_dir.join("ended")
+}
+
 pub struct Guard {
     config: Arc<Config>,
     config_path: PathBuf,
@@ -121,12 +127,13 @@ pub struct Guard {
     fallback_notified: bool,
     local_disabled_notified: bool,
     limiter: Limiter,
+    alerts: VecDeque<Alert>,
 }
 
 impl Guard {
     pub fn new(config: Arc<Config>, config_path: PathBuf, system: bool, shared: Arc<Shared>, signals: Arc<Signals>) -> Self {
         let text = Text(config.language);
-        Self {
+        let mut guard = Self {
             config_stamp: stamp(&config_path),
             signals,
             config,
@@ -155,7 +162,10 @@ impl Guard {
             fallback_notified: false,
             local_disabled_notified: false,
             limiter: Limiter::default(),
-        }
+            alerts: VecDeque::new(),
+        };
+        guard.startup_alerts();
+        guard
     }
 
     fn force(&self) -> Force {
@@ -275,6 +285,7 @@ impl Guard {
             })),
             "clear_since": self.local.then(|| logbook::date(self.local_since)),
             "clear_names": self.clear_total,
+            "alerts": self.alerts.iter().map(|a| json!({ "at": logbook::date(a.at), "title": a.title, "detail": a.detail })).collect::<Vec<_>>(),
             "checked": logbook::date(logbook::now()),
         });
         let path = state_file(&self.config);

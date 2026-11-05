@@ -55,6 +55,24 @@ fn check_accepts_a_valid_configuration_and_lists_the_servers() {
     let shown = text(&out.stdout);
     assert!(shown.contains("Configuration OK"), "{shown}");
     assert!(shown.contains("1. mine"), "{shown}");
+    assert!(shown.contains("Service") && !shown.contains("To look at"), "{shown}");
+}
+
+#[test]
+fn check_warns_about_files_open_to_other_users() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = Dir::new("check-modes");
+    let config = token_config(&dir, &[("mine", true)]);
+    let token = dir.path("mine.token");
+    std::fs::write(&token, "abcdefghijklmnop0123456789\n").unwrap();
+    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o666)).unwrap();
+    std::fs::set_permissions(&token, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let out = run(&config, &["check"], "");
+    // À surveiller, pas une erreur.
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let shown = text(&out.stdout);
+    assert!(shown.contains("To look at") && shown.contains("mode 666") && shown.contains("mode 644"), "{shown}");
+    assert!(!shown.contains("abcdefghijklmnop0123456789"));
 }
 
 #[test]

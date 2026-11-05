@@ -1,9 +1,10 @@
 //! Notifications de la garde : limitées en nombre, nouveaux domaines en clair seulement,
-//! serveur de secours signalé après une minute.
+//! serveur de secours signalé après une minute. Chacune est aussi gardée comme alerte pour
+//! `abdns status`, même coupée ou retenue.
 
 use std::collections::{BTreeSet, VecDeque};
 
-use super::Guard;
+use super::{Guard, ended_file};
 use crate::resolver::Resolver;
 use crate::{lock, logbook, platform};
 
@@ -13,6 +14,14 @@ const NOTICE_WINDOW: u64 = 600;
 const NOTICES_PER_WINDOW: usize = 6;
 /// Noms cités dans une notification ; les suivants sont comptés.
 const NAMES_SHOWN: usize = 4;
+/// Alertes gardées pour `abdns status`, les plus récentes.
+const ALERTS_KEPT: usize = 10;
+
+pub(super) struct Alert {
+    pub(super) at: u64,
+    pub(super) title: String,
+    pub(super) detail: String,
+}
 
 /// Noms pas encore signalés, ordre d'arrivée gardé ; `reported` retient les signalés.
 pub(super) fn new_names(names: &[String], reported: &mut BTreeSet<String>) -> Vec<String> {
@@ -45,6 +54,37 @@ impl Limiter {
 
 impl Guard {
     pub(super) fn notify(&mut self, now: u64, title: &str, body: &str) {
+        self.remember(now, title, body);
+        self.send(now, title, body);
+    }
+
+    /// Alerte gardée pour `abdns status` (fichier d'état lisible par tous : jamais de domaine).
+    pub(super) fn remember(&mut self, at: u64, title: &str, detail: &str) {
+        if self.alerts.len() == ALERTS_KEPT {
+            self.alerts.pop_front();
+        }
+        self.alerts.push_back(Alert { at, title: title.to_owned(), detail: detail.to_owned() });
+        // Fichier d'état réécrit au prochain tour, pas au prochain contrôle (30 s).
+        self.next_check = self.next_check.min(logbook::now());
+    }
+
+    /// Ce que le démarrage a trouvé : serveurs mis de côté, arrêt brutal d'avant la relance.
+    pub(super) fn startup_alerts(&mut self) {
+        let ended = ended_file(&self.config);
+        if let Ok(text) = std::fs::read_to_string(&ended) {
+            let at = std::fs::metadata(&ended).and_then(|m| m.modified()).map_or_else(|_| logbook::now(), logbook::secs);
+            let (title, detail) = text.split_once('\n').unwrap_or((&text, ""));
+            self.remember(at, title, detail);
+            std::fs::remove_file(&ended).ok();
+        }
+        let problems = self.shared.resolver().problems();
+        if !problems.is_empty() {
+            let body = self.text.unusable_body(&problems.join(" ; "));
+            self.remember(logbook::now(), &self.text.unusable_title(), &body);
+        }
+    }
+
+    fn send(&mut self, now: u64, title: &str, body: &str) {
         if !self.config.notify.enabled || self.limiter.allow(now) {
             platform::notice(&self.config, title, body);
         } else {
@@ -65,7 +105,9 @@ impl Guard {
         if !fresh.is_empty() {
             let (shown, more) = summary(&fresh);
             let body = self.text.names(&shown, more);
-            self.notify(now, &self.text.names_title(), &body);
+            let title = self.text.names_title();
+            self.remember(now, &title, &self.text.names_logged(fresh.len(), &self.config.clear_log.display().to_string()));
+            self.send(now, &title, &body);
         }
     }
 

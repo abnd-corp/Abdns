@@ -4,11 +4,11 @@
 _abdns() {
     local -a commands
     commands=(
-        'status:mode, servers, network, names sent in clear'
+        'status:mode, servers, network, latest alerts'
         'test:query every server now and show its response time'
         'mode:force a mode (auto, encrypted, local)'
         'reload:read the configuration again now'
-        'check:validate the configuration file'
+        'check:review configuration, servers, tokens, service'
         'logs:show the service log'
         'token:store a server token, pasted as one line'
         'install:install and start abdnsd without a package manager'
