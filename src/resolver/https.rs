@@ -74,6 +74,10 @@ impl Upstream {
         self.problem.as_deref()
     }
 
+    pub(super) fn same(&self, other: &Upstream) -> bool {
+        (&self.name, &self.url, self.ip, &self.problem) == (&other.name, &other.url, other.ip, &other.problem)
+    }
+
     /// Connexions neuves pour les requêtes suivantes ; celles en cours finissent sur l'ancien.
     pub(super) fn reconnect(&self) {
         if let Ok(client) = client(&self.name, self.ip) {

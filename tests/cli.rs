@@ -177,6 +177,28 @@ fn token_is_extracted_from_a_full_url_and_stored_privately() {
 }
 
 #[test]
+fn token_needs_one_line_not_the_end_of_input() {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let dir = Dir::new("token-line");
+    let config = token_config(&dir, &[("mine", true)]);
+    let mut child =
+        Command::new(common::TOOL).arg("--config").arg(&config).arg("token").stdin(Stdio::piped()).stdout(Stdio::null()).spawn().unwrap();
+    // Entrée laissée ouverte, comme un terminal après Entrée.
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(b"abcdefghijklmnop0123456789\n").unwrap();
+    let started = std::time::Instant::now();
+    while child.try_wait().unwrap().is_none() {
+        if started.elapsed() > std::time::Duration::from_secs(5) {
+            child.kill().ok();
+            panic!("abdns token still waits for the end of input");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert_eq!(std::fs::read_to_string(dir.path("mine.token")).unwrap(), "abcdefghijklmnop0123456789\n");
+}
+
+#[test]
 fn token_rejects_bad_input_and_ambiguous_servers() {
     let dir = Dir::new("token-bad");
     let config = token_config(&dir, &[("mine", true)]);

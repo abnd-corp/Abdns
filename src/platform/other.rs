@@ -65,6 +65,14 @@ pub fn logs(follow: bool, lines: u32) -> std::process::Command {
     command
 }
 
+/// Sans terminal POSIX : la ligne est lue telle quelle, avec écho.
+#[cfg(not(unix))]
+pub fn read_secret_line() -> std::io::Result<String> {
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    Ok(line.trim_end_matches(['\r', '\n']).to_owned())
+}
+
 pub fn open(url: &str) {
     logbook::log(&format!("to open: {url}"));
 }

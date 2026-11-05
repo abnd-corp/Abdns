@@ -10,7 +10,7 @@ _abdns() {
         'reload:read the configuration again now'
         'check:validate the configuration file'
         'logs:show the service log'
-        'token:store a server token read from standard input'
+        'token:store a server token, pasted as one line'
         'install:install and start abdnsd without a package manager'
         'uninstall:stop and remove abdnsd, restore the network DNS'
         'completions:print a shell completion script'

@@ -40,8 +40,10 @@ Validate the configuration file and list the servers in order, like \fBsshd \-t\
 Show the service log; \fB\-f\fR follows it.
 .TP
 .BR token " [" \fIserver\fR ]
-Store the secret path segment of a server's DoH URL, read from standard input, in that server's
-\fBtoken_file\fR (mode 0600). Accepts the token alone or the full URL. As root.
+Store the secret path segment of a server's DoH URL in that server's \fBtoken_file\fR (mode
+0600). Reads one line from standard input: the token alone or the full URL. In a terminal, the
+input is not echoed. If abdnsd is running, it is asked to reload and uses the token at once. As
+root.
 .TP
 .BR install " / " uninstall
 Install and start, or stop and remove, abdnsd as a launchd service when no package manager does

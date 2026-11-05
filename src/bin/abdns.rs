@@ -2,7 +2,7 @@
 //! configuration, montre les journaux ; installe le service quand aucun gestionnaire de
 //! paquets ne s'en charge.
 
-use std::io::{Read, Write};
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 use abdns::config::{self, Config};
@@ -20,7 +20,7 @@ const USAGE: &str = "Usage: abdns [--config FILE] [--json] <command>
   reload                       read the configuration again now (administrators)
   check                        validate the configuration file, like sshd -t
   logs [-f] [-n LINES]         show the service log (-f: follow)
-  token [SERVER]               store a server token read from standard input (as root)
+  token [SERVER]               store a server token, pasted or piped as one line (as root)
   install                      install and start abdnsd without a package manager (as root, macOS and Linux)
   uninstall                    stop and remove abdnsd, restore the network DNS (as root, macOS and Linux)
   completions bash|zsh|fish    print a shell completion script
@@ -129,7 +129,7 @@ fn check(path: &Path) -> Result<()> {
 }
 
 /// Jeton seul, ou adresse DoH complète dont il est le dernier segment ; pour le serveur nommé,
-/// ou le seul serveur qui a un `token_file`.
+/// ou le seul serveur qui a un `token_file`. Une ligne suffit ; service en marche : relu aussitôt.
 fn store_token(config: &Config, server: Option<&str>) -> Result<()> {
     let candidates: Vec<_> = config.server.iter().filter(|s| s.token_file.is_some() && server.is_none_or(|n| s.name == n)).collect();
     let target = match candidates.as_slice() {
@@ -138,9 +138,13 @@ fn store_token(config: &Config, server: Option<&str>) -> Result<()> {
         _ => bail!("several servers have a token_file: name one (abdns token \"NAME\")"),
     };
     let path = target.token_file.as_ref().context("token_file")?;
-    let mut input = String::new();
-    std::io::stdin().read_to_string(&mut input)?;
-    let token = input.trim().rsplit('/').next().unwrap_or_default();
+    let text = Text(config.language);
+    if std::io::stdin().is_terminal() {
+        eprint!("{} ", text.token_prompt());
+        std::io::stderr().flush().ok();
+    }
+    let input = platform::read_secret_line()?;
+    let token = input.trim().trim_end_matches('/').rsplit('/').next().unwrap_or_default();
     ensure!(config::valid_token(token), "no valid token on standard input");
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -153,7 +157,10 @@ fn store_token(config: &Config, server: Option<&str>) -> Result<()> {
         .open(path)
         .and_then(|mut f| f.write_all(format!("{token}\n").as_bytes()))
         .with_context(|| format!("cannot write {}", path.display()))?;
-    println!("{}", Text(config.language).token_saved(&path.display().to_string()));
+    println!("{}", text.token_saved(&path.display().to_string()));
+    if control::request(&control::socket_path(config), &Request::Reload).is_ok() {
+        println!("{}", text.token_reloaded());
+    }
     Ok(())
 }
 

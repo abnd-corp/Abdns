@@ -19,6 +19,12 @@ mod other;
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub use other::*;
 
+/// Commun aux systèmes POSIX : macOS, Linux, et les BSD plus tard.
+#[cfg(unix)]
+mod tty;
+#[cfg(unix)]
+pub use tty::read_secret_line;
+
 /// Vrai là où le DNS du poste ne se défait pas seul si abdns est tué net : le garde-fou le rend
 /// au réseau (macOS). Sous Linux, le noyau retire la table du pare-feu avec le processus.
 pub const RESTORE_AFTER_EXIT: bool = cfg!(target_os = "macos");

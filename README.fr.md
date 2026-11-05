@@ -141,8 +141,10 @@ abdns.darwinModules.default
 Si votre résolveur protège son adresse DoH par un chemin secret (`https://203.0.113.5/dns-query/<jeton>`), gardez le jeton hors de la configuration : le serveur reçoit une `url` terminée par `/` et un `token_file`, puis :
 
 ```sh
-printf '%s' 'https://203.0.113.5/dns-query/<jeton>' | sudo abdns token
+sudo abdns token
 ```
+
+Collez l'adresse complète (ou le jeton seul), puis Entrée : rien ne s'affiche pendant la saisie. Un tube marche aussi (`pbpaste | sudo abdns token`). Si abdnsd tourne, il utilise le nouveau jeton aussitôt.
 
 Le jeton est rangé lisible par l'administrateur seul et n'apparaît dans aucun journal : les erreurs sont journalisées sans l'adresse.
 

@@ -161,8 +161,16 @@ impl Text {
         self.pick(format!("mode {mode}: applied within a few seconds"), format!("mode {mode} : appliqué dans quelques secondes"))
     }
 
+    pub fn token_prompt(&self) -> String {
+        self.pick("Paste the URL or the token, then Enter:".into(), "Collez l'adresse ou le jeton, puis Entrée :".into())
+    }
+
     pub fn token_saved(&self, path: &str) -> String {
         self.pick(format!("token saved to {path}"), format!("jeton enregistré dans {path}"))
+    }
+
+    pub fn token_reloaded(&self) -> String {
+        self.pick("abdnsd uses it now".into(), "abdnsd l'utilise dès maintenant".into())
     }
 }
 
