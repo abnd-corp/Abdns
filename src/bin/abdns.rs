@@ -125,6 +125,8 @@ fn check(path: &Path) -> Result<()> {
     }
     let fallback = if config.local_fallback { say(lang, "yes", "oui") } else { say(lang, "no", "non") };
     println!("  {}: {fallback}", say(lang, "local fallback", "dernier recours local"));
+    let notify = if config.notify.enabled { say(lang, "yes", "oui") } else { say(lang, "no, log only", "non, journal seul") };
+    println!("  notifications: {notify}");
     Ok(())
 }
 

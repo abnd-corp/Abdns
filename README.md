@@ -63,7 +63,7 @@ Set `local_fallback = false` to forbid this last resort: portals will then not o
 | Fallback server in use / main server back | 1 each |
 | Configuration reloaded or ignored | 1 |
 
-On top of that, never more than 6 notifications in 10 minutes; the rest only goes to the log.
+On top of that, never more than 6 notifications in 10 minutes; the rest only goes to the log. A computer without a graphical session gets none and logs no error; `[notify] enabled = false` turns them all off.
 
 ## Installation (macOS and Linux)
 
@@ -153,6 +153,9 @@ The token is stored root-only and never written to any log: errors are logged wi
 language = "en"           # notifications in "en" or "fr"
 local_fallback = true     # network DNS as a last resort (captive portals)
 
+[notify]
+enabled = true            # false: no notifications, the log keeps everything
+
 [[server]]                # tried first
 name = "Google"
 url = "https://8.8.8.8/dns-query"
@@ -166,6 +169,7 @@ url = "https://1.1.1.1/dns-query"
 |---|---|---|
 | `language` | `"en"` | Notifications in `en` or `fr` |
 | `local_fallback` | `true` | Use the network DNS when no server answers (captive portals) |
+| `notify.enabled` | `true` | `false`: no notification at all; everything still goes to the log |
 | `listen` | `127.0.0.1:53`, `[::1]:53` | Where the system sends its queries (restart to change) |
 | `server` | — | DoH servers, in order: `name`, `url`, `ip` (required if the URL uses a host name), `token_file` |
 | `network_services` | `["Wi-Fi"]` | macOS network services pointed to abdns (ignored on Linux: every physical interface the computer goes out by) |

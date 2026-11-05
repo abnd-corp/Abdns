@@ -45,8 +45,8 @@ impl Limiter {
 
 impl Guard {
     pub(super) fn notify(&mut self, now: u64, title: &str, body: &str) {
-        if self.limiter.allow(now) {
-            platform::notify(title, body);
+        if !self.config.notify.enabled || self.limiter.allow(now) {
+            platform::notice(&self.config, title, body);
         } else {
             logbook::log(&format!("notification held back: {title} — {body}"));
         }

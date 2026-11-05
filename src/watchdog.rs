@@ -106,9 +106,13 @@ fn ended(config_path: &Path, hung: bool) -> Result<()> {
     } else {
         logbook::log("abdnsd ended abruptly: network DNS restored until it restarts");
     }
-    let text = Text(config.map(|c| c.language).unwrap_or_default());
+    let text = Text(config.as_ref().map(|c| c.language).unwrap_or_default());
     let title = if hung { text.hung_title() } else { text.crashed_title() };
-    platform::notify(&title, &text.crashed_body());
+    match &config {
+        Ok(config) => platform::notice(config, &title, &text.crashed_body()),
+        // Configuration illisible : on ne sait pas si l'utilisateur les a coupées, on prévient.
+        Err(_) => platform::notify(&title, &text.crashed_body()),
+    }
     Ok(())
 }
 

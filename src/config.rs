@@ -31,6 +31,23 @@ pub struct Config {
     /// macOS : services réseau dont le DNS est réglé sur le relais (sans objet sous Linux).
     #[serde(default = "default_network_services")]
     pub network_services: Vec<String>,
+    #[serde(default)]
+    pub notify: Notify,
+}
+
+/// Section `[notify]`. Sans elle, toutes les notifications partent.
+#[derive(Deserialize, Clone, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Notify {
+    /// `false` : aucune notification, le journal garde tout.
+    #[serde(default = "yes")]
+    pub enabled: bool,
+}
+
+impl Default for Notify {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 /// Serveur DoH : `url` complète, ou préfixe auquel s'ajoute le jeton de `token_file`.
@@ -158,8 +175,17 @@ mod tests {
     fn minimal_config_gets_defaults() {
         let config = Config::parse("[[server]]\nname = \"a\"\nurl = \"https://203.0.113.5/dns-query\"\n").unwrap();
         assert!(config.local_fallback);
+        assert!(config.notify.enabled);
         assert_eq!(config.language, Lang::En);
         assert_eq!(config.server[0].full_url().unwrap(), "https://203.0.113.5/dns-query");
+    }
+
+    #[test]
+    fn notifications_can_be_turned_off() {
+        let server = "[[server]]\nname = \"a\"\nurl = \"https://203.0.113.5/q\"\n";
+        assert!(!Config::parse(&format!("[notify]\nenabled = false\n\n{server}")).unwrap().notify.enabled);
+        assert!(Config::parse(&format!("{server}\n[notify]\n")).unwrap().notify.enabled);
+        assert!(Config::parse(&format!("{server}\n[notify]\nenable = false\n")).is_err());
     }
 
     #[test]

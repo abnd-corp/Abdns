@@ -63,7 +63,7 @@ applications ──► abdns (127.0.0.1:53) ──DoH──► serveur 1 (votre 
 | Secours utilisé / serveur principal rétabli | 1 chacun |
 | Configuration rechargée ou ignorée | 1 |
 
-En plus, jamais plus de 6 notifications en 10 minutes ; le reste va seulement au journal.
+En plus, jamais plus de 6 notifications en 10 minutes ; le reste va seulement au journal. Un poste sans session graphique n'en reçoit aucune et ne journalise aucune erreur ; `[notify] enabled = false` les coupe toutes.
 
 ## Installation (macOS et Linux)
 
@@ -153,6 +153,9 @@ Le jeton est rangé lisible par l'administrateur seul et n'apparaît dans aucun 
 ```toml
 language = "fr"           # notifications en "en" ou "fr"
 local_fallback = true     # DNS du réseau en dernier recours (portails captifs)
+
+[notify]
+enabled = true            # false : aucune notification, le journal garde tout
 
 [[server]]                # essayé en premier
 name = "Google"

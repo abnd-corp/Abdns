@@ -4,6 +4,9 @@
 
 use std::net::IpAddr;
 
+use crate::config::Config;
+use crate::logbook;
+
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
@@ -25,6 +28,15 @@ pub const RESTORE_AFTER_EXIT: bool = cfg!(target_os = "macos");
 
 /// Faux là où le réseau n'est pas encore lu (`network()` rend toujours `None`).
 pub const SEES_NETWORK: bool = cfg!(any(target_os = "macos", target_os = "linux"));
+
+/// Notification, sauf si `[notify] enabled = false` : le journal la garde dans tous les cas.
+pub fn notice(config: &Config, title: &str, body: &str) {
+    if config.notify.enabled {
+        notify(title, body);
+    } else {
+        logbook::log(&format!("notification (off): {title} — {body}"));
+    }
+}
 
 /// Réseau par lequel sort le poste.
 #[derive(Clone, PartialEq, Eq, Debug)]

@@ -45,6 +45,10 @@ TOML. Only \fB[[server]]\fR is required.
 .B local_fallback
 Use the network DNS when no server answers (default \fBtrue\fR).
 .TP
+.B notify.enabled
+In a \fB[notify]\fR section: \fBfalse\fR sends no notification at all; everything still goes
+to the log (default \fBtrue\fR). Without a graphical session, none is attempted.
+.TP
 .B listen
 Addresses to listen on (default 127.0.0.1:53 and [::1]:53; restart to change).
 .TP
