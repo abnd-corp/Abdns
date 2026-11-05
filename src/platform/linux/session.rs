@@ -2,10 +2,15 @@
 
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 
 use super::output;
 use super::service::DESKTOP_ID;
-use crate::logbook;
+use crate::{lock, logbook};
+
+/// Programmes qui n'ont pas pu être lancés (`notify-send` absent…) : signalés une seule fois au
+/// journal, pas à chaque notification.
+static FAILED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 /// Utilisateur de la session graphique active : (uid, nom). Personne sans écran (ssh, console).
 pub(super) fn graphical_session(sessions: &str, show: impl Fn(&str) -> Option<String>) -> Option<(String, String)> {
@@ -56,7 +61,11 @@ pub(super) fn as_session_user(program: &str, args: &[&str]) {
     };
     let status = Command::new(&command[0]).args(&command[1..]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     if let Err(error) = status {
-        logbook::log(&format!("{program}: {error}"));
+        let mut failed = lock(&FAILED);
+        if !failed.iter().any(|p| p == program) {
+            failed.push(program.to_owned());
+            logbook::log(&format!("{program}: {error} (said once)"));
+        }
     }
 }
 

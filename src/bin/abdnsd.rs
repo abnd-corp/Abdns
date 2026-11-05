@@ -22,7 +22,7 @@ fn notify_failure(config: &Config, error: &anyhow::Error) {
     if !recent {
         std::fs::write(&marker, b"").ok();
         let text = Text(config.language);
-        platform::notify(&text.stopped_title(), &text.stopped_body(&format!("{error:#}")));
+        platform::notice(config, &text.stopped_title(), &text.stopped_body(&format!("{error:#}")));
     }
 }
 
@@ -52,7 +52,7 @@ fn run(config_path: &Path, system: bool) -> Result<()> {
             logbook::log(&format!("server set aside: {}", problems.join("; ")));
             if system {
                 let text = Text(config.language);
-                platform::notify(&text.unusable_title(), &text.unusable_body(&problems.join(" ; ")));
+                platform::notice(&config, &text.unusable_title(), &text.unusable_body(&problems.join(" ; ")));
             }
         }
         let shared = relay::Shared::new(resolver);
@@ -83,7 +83,7 @@ fn run(config_path: &Path, system: bool) -> Result<()> {
             Ok(()) => watch = Watchdog::spawn(config_path),
             Err(error) => {
                 logbook::log(&format!("{error:#}"));
-                platform::notify("abdns", &format!("{error:#}"));
+                platform::notice(&config, "abdns", &format!("{error:#}"));
             }
         }
     }

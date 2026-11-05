@@ -20,6 +20,10 @@ clear_log = "/var/log/abdns/clear.log"
 # Ignored on Linux: abdns takes over every physical interface the computer goes out by.
 network_services = ["Wi-Fi"]
 
+# Notifications. false: none at all, everything still goes to the log (abdns logs).
+[notify]
+enabled = true
+
 # DNS-over-HTTPS servers, tried in this order. Replace them with your own resolver and
 # privacy-respecting fallbacks; these two are only well-known examples.
 [[server]]
