@@ -244,7 +244,7 @@ mod tests {
     fn changed_token_means_new_servers() {
         let token = std::env::temp_dir().join(format!("abdns-token-test-{}", std::process::id()));
         let text = format!(
-            "[[server]]\nname = \"VPS\"\nurl = \"https://203.0.113.5/q/\"\ntoken_file = \"{}\"\n\n\
+            "[[server]]\nname = \"VPS\"\nurl = \"https://203.0.113.5/q/\"\ntoken_file = '{}'\n\n\
 [[server]]\nname = \"Other\"\nurl = \"https://203.0.113.6/q\"\n",
             token.display()
         );
