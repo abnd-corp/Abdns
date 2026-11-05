@@ -10,7 +10,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const CLEAR_LOG_MAX: u64 = 5 * 1024 * 1024;
 
 pub fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+    secs(SystemTime::now())
+}
+
+/// Secondes depuis 1970 d'une date du système.
+pub fn secs(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 /// Date UTC « AAAA-MM-JJ HH:MM:SS UTC » (algorithme des jours civils de H. Hinnant).

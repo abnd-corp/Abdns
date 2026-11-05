@@ -173,9 +173,9 @@ Le tableau complet des clés est dans le [README anglais](README.md#configuratio
 ## Utilisation
 
 ```sh
-abdns status                  # mode, serveurs (● celui qui répond), réseau, domaines envoyés en clair
+abdns status                  # mode, serveurs (● celui qui répond), réseau, domaines en clair, dernières alertes
 abdns test                    # interroge chaque serveur maintenant, avec son temps de réponse
-abdns check                   # vérifie le fichier de configuration, comme sshd -t
+abdns check                   # état des lieux : configuration, serveurs, jetons, droits des fichiers, service
 abdns mode local              # impose le DNS du réseau (portail récalcitrant)
 abdns mode encrypted          # interdit le DNS du réseau
 abdns mode auto               # revient au choix automatique

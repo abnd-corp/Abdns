@@ -147,6 +147,30 @@ impl Config {
     }
 }
 
+impl Config {
+    /// Fichier invalide : de quoi joindre le service quand même. Dossier d'état et langue s'ils
+    /// se lisent encore, sinon leurs valeurs par défaut ; aucun serveur.
+    pub fn salvage(path: &Path) -> Self {
+        #[derive(Deserialize, Default)]
+        struct Partial {
+            #[serde(default)]
+            language: Lang,
+            state_dir: Option<PathBuf>,
+        }
+        let partial: Partial = std::fs::read_to_string(path).ok().and_then(|text| toml::from_str(&text).ok()).unwrap_or_default();
+        Self {
+            language: partial.language,
+            listen: default_listen(),
+            server: Vec::new(),
+            local_fallback: true,
+            state_dir: partial.state_dir.unwrap_or_else(default_state_dir),
+            clear_log: default_clear_log(),
+            network_services: default_network_services(),
+            notify: Notify::default(),
+        }
+    }
+}
+
 pub fn valid_token(token: &str) -> bool {
     token.len() >= 16 && token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
@@ -178,6 +202,17 @@ mod tests {
         assert!(config.notify.enabled);
         assert_eq!(config.language, Lang::En);
         assert_eq!(config.server[0].full_url().unwrap(), "https://203.0.113.5/dns-query");
+    }
+
+    #[test]
+    fn salvage_keeps_what_reaches_the_service() {
+        let dir = std::env::temp_dir().join(format!("abdns-salvage-{}", std::process::id()));
+        std::fs::write(&dir, "language = \"fr\"\nstate_dir = \"/tmp/s\"\nbogus = 1\n").unwrap();
+        let config = Config::salvage(&dir);
+        assert_eq!((config.language, config.state_dir), (Lang::Fr, PathBuf::from("/tmp/s")));
+        std::fs::write(&dir, "not toml [").unwrap();
+        assert_eq!(Config::salvage(&dir).state_dir, default_state_dir());
+        std::fs::remove_file(&dir).ok();
     }
 
     #[test]

@@ -50,6 +50,10 @@ impl Text {
         self.pick("Looked up in clear".into(), "Demandé en clair".into())
     }
 
+    pub fn names_logged(&self, count: usize, log: &str) -> String {
+        self.pick(format!("{count} new names, listed in {log}"), format!("{count} nouveaux domaines, listés dans {log}"))
+    }
+
     pub fn names(&self, shown: &str, more: usize) -> String {
         match (self.0, more) {
             (_, 0) => shown.to_owned(),
