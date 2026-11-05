@@ -66,6 +66,11 @@ impl Resolver {
         self.upstreams.iter().filter_map(Upstream::problem).map(str::to_owned).collect()
     }
 
+    /// Mêmes adresses (jetons compris) et mêmes serveurs mis de côté : rien à remplacer.
+    pub fn same_servers(&self, other: &Resolver) -> bool {
+        self.upstreams.len() == other.upstreams.len() && self.upstreams.iter().zip(&other.upstreams).all(|(a, b)| a.same(b))
+    }
+
     /// Serveur qui a répondu en dernier.
     pub fn active(&self) -> Option<usize> {
         Some(self.last.load(Ordering::Relaxed)).filter(|&i| i != NONE)
@@ -233,6 +238,27 @@ mod tests {
         // Aucun serveur utilisable : le service ne démarre pas.
         let alone = "[[server]]\nname = \"VPS\"\nurl = \"https://203.0.113.5/q/\"\ntoken_file = \"/nonexistent/token\"\n";
         assert!(Resolver::new(&Config::parse(alone).unwrap()).is_err());
+    }
+
+    #[test]
+    fn changed_token_means_new_servers() {
+        let token = std::env::temp_dir().join(format!("abdns-token-test-{}", std::process::id()));
+        let text = format!(
+            "[[server]]\nname = \"VPS\"\nurl = \"https://203.0.113.5/q/\"\ntoken_file = '{}'\n\n\
+[[server]]\nname = \"Other\"\nurl = \"https://203.0.113.6/q\"\n",
+            token.display()
+        );
+        let config = Config::parse(&text).unwrap();
+        let missing = Resolver::new(&config).unwrap();
+        std::fs::write(&token, "first-token-0123456789\n").unwrap();
+        let first = Resolver::new(&config).unwrap();
+        std::fs::write(&token, "second-token-0123456789\n").unwrap();
+        let second = Resolver::new(&config).unwrap();
+        std::fs::remove_file(&token).ok();
+        assert!(!missing.same_servers(&first));
+        assert!(!first.same_servers(&second));
+        assert!(second.same_servers(&second));
+        assert!(resolver().same_servers(&resolver()));
     }
 
     #[test]

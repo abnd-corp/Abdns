@@ -140,8 +140,10 @@ abdns.darwinModules.default
 If your resolver protects its DoH endpoint with a secret path (`https://203.0.113.5/dns-query/<token>`), keep the token out of the configuration: give the server a `url` ending with `/` and a `token_file`, then:
 
 ```sh
-printf '%s' 'https://203.0.113.5/dns-query/<token>' | sudo abdns token
+sudo abdns token
 ```
+
+Paste the full URL (or the token alone) and press Enter: nothing is shown while you type. A pipe works too (`pbpaste | sudo abdns token`). If abdnsd is running, it uses the new token right away.
 
 The token is stored root-only and never written to any log: errors are logged without the URL.
 
