@@ -41,8 +41,11 @@ in
     environment.etc."newsyslog.d/abdns.conf".text = ''
       ${logDir}/abdns.log 644 3 1024 * Z
     '';
+    # `command` plutôt que ProgramArguments : nix-darwin attend /nix/store (/bin/wait4path) avant
+    # de lancer. Au démarrage du Mac, launchd lance le service avant le montage du volume Nix :
+    # sans cette attente, le lancement échoue (code 78) et launchd ne le refait jamais.
+    launchd.daemons.abdns.command = lib.escapeShellArgs [ "${package}/bin/abdnsd" "--config" cfg.configFile ];
     launchd.daemons.abdns.serviceConfig = {
-      ProgramArguments = [ "${package}/bin/abdnsd" "--config" cfg.configFile ];
       RunAtLoad = true;
       KeepAlive = true;
       ThrottleInterval = 5;
