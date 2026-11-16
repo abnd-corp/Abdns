@@ -14,7 +14,7 @@ categories = ["network-programming", "command-line-utilities"]
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.9"
+toml = "1.1"
 tokio = { version = "1", default-features = false, features = ["rt", "net", "time", "signal", "io-util"] }
 hyper = { version = "1", default-features = false, features = ["client", "http1", "http2"] }
 hyper-util = { version = "0.1", default-features = false, features = ["client-legacy", "http1", "http2", "tokio"] }
